@@ -1654,6 +1654,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     stopConnection(pub_key);
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
+    _serial->setFastMode(true);  // reset fast-mode cooldown — stay fast for the whole channel sync sequence
     uint8_t channel_idx = cmd_frame[1];
     ChannelDetails channel;
     if (getChannel(channel_idx, channel)) {
