@@ -101,7 +101,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 
 | Variant | Changes |
 |---|---|
-| **Heltec V4** | BME680/INA3221 sensor enables; `SX126X_REGISTER_PATCH=1` for improved AGC; `RSSI_OFFSET=-17` (GC1109 LNA); `DEFAULT_POWERSAVING_ENABLED=1`; repeater name → "Heltec V4 Repeater"; MAX_CONTACTS 600/5000/4000; OFFLINE_QUEUE_SIZE 1024 |
+| **Heltec V4** | BME680/INA3221 sensor enables; `SX126X_REGISTER_PATCH=1` for improved AGC; `RSSI_OFFSET=-17` (GC1109 LNA); `DEFAULT_POWERSAVING_ENABLED=1`; repeater name → "Heltec V4 Repeater"; **offline message queue: 1024** (companion radio builds); **contacts: 5000** (OLED companion) / **4000** (TFT companion) / 600 (terminal chat) |
 | **Heltec V3** | TX LED disabled; WiFi companion MAX_CONTACTS/OFFLINE_QUEUE_SIZE adjustments |
 | **Station G2** | `SX126X_RX_BOOSTED_GAIN=1` (with warning); BLE variant: `BLE_TX_POWER=7`; MAX_CONTACTS 600 |
 | **RAK4631** | Repeater now inherits from `[repeater_settings]` |
