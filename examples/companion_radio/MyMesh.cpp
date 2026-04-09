@@ -1177,6 +1177,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       _iter = startContactsIterator();
       _iter_started = true;
       _most_recent_lastmod = 0;
+      _serial->setFastMode(true);  // switch to fast BLE interval for bulk contact streaming
     }
   } else if (cmd_frame[0] == CMD_SET_ADVERT_NAME && len >= 2) {
     int nlen = len - 1;
@@ -2120,6 +2121,7 @@ void MyMesh::checkSerialInterface() {
              4); // include the most recent lastmod, so app can update their 'since'
       _serial->writeFrame(out_frame, 5);
       _iter_started = false;
+      _serial->setFastMode(false);  // sync done — dial back to idle BLE interval
     }
   //} else if (!_serial->isWriteBusy()) {
   //  checkConnections();    // TODO - deprecate the 'Connections' stuff

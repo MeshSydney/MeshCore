@@ -113,6 +113,9 @@ void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t 
   // the conn param negotiation (1-2 events at the new 15ms interval = ~30ms) before
   // we issue a second LL procedure. The two must never overlap or the stack freezes.
   _phy_update_time = millis() + 400;
+  // Start in fast mode; MyMesh will call setFastMode(false) when sync is done.
+  _fast_mode = true;
+  _mode_change_time = 0;
 }
 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
@@ -200,6 +203,24 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
 
 #define  BLE_WRITE_MIN_INTERVAL   8   // millis between BLE notifications (faster than 15ms max so we don't skip events)
 
+void SerialBLEInterface::setFastMode(bool fast) {
+  if (fast == _fast_mode && _mode_change_time == 0) return;  // already in the right mode, nothing pending
+  _fast_mode = fast;
+  if (fast) {
+    // Switch to fast params quickly (20ms) so sync starts at full speed.
+    // Guard: don't clobber a still-pending initial conn params update.
+    if (_conn_params_update_time == 0 && _phy_update_time == 0) {
+      _mode_change_time = millis() + 20;
+    } else {
+      _mode_change_time = 0;  // initial setup handles it
+    }
+  } else {
+    // 2s cooldown before dialing back — lets any in-flight frames clear and
+    // avoids rapid oscillation if the app re-requests contacts immediately.
+    _mode_change_time = millis() + 2000;
+  }
+}
+
 bool SerialBLEInterface::isWriteBusy() const {
   return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;  // don't push data faster than BLE can send it
 }
@@ -224,6 +245,25 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
     esp_ble_gap_set_prefered_phy(_pending_conn_bda, 0,
       ESP_BLE_GAP_PHY_2M_PREF_MASK, ESP_BLE_GAP_PHY_2M_PREF_MASK,
       ESP_BLE_GAP_PHY_OPTIONS_NO_PREF);
+  }
+
+  // Dynamic mode switch requested by upper layer (setFastMode).
+  // Guard: only fire when no other LL procedure is in flight.
+  if (_mode_change_time && millis() >= _mode_change_time
+      && _conn_params_update_time == 0 && _phy_update_time == 0) {
+    _mode_change_time = 0;
+    esp_ble_conn_update_params_t conn_params = {};
+    memcpy(conn_params.bda, _pending_conn_bda, sizeof(esp_bd_addr_t));
+    if (_fast_mode) {
+      conn_params.min_int = 0x06;  // 7.5ms — full speed for contact/channel streaming
+      conn_params.max_int = 0x0C;  // 15ms
+    } else {
+      conn_params.min_int = 0xA0;  // 200ms — very relaxed idle; ample for push message delivery
+      conn_params.max_int = 0x190; // 500ms — iOS/Android both accept up to 4s; we use 500ms for headroom
+    }
+    conn_params.latency = 0;
+    conn_params.timeout = 0x0C80;  // 32s supervision timeout (must be > 2 × max_interval = 1s; bumped for reliability at slow interval)
+    esp_ble_gap_update_conn_params(&conn_params);
   }
 
   if (send_queue_len > 0

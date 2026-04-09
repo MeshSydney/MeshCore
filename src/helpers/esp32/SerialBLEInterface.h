@@ -20,6 +20,8 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   unsigned long adv_restart_time;
   unsigned long _conn_params_update_time;  // 0 = no pending update
   unsigned long _phy_update_time;           // 0 = no pending PHY update (staggered after conn params)
+  unsigned long _mode_change_time;          // 0 = no pending mode change
+  bool _fast_mode;                          // true = sync speed (7.5-15ms), false = idle speed (45-90ms)
   esp_bd_addr_t _pending_conn_bda;
 
   struct Frame {
@@ -65,6 +67,8 @@ public:
     send_queue_len = recv_queue_len = 0;
     _conn_params_update_time = 0;
     _phy_update_time = 0;
+    _mode_change_time = 0;
+    _fast_mode = true;
     memset(_pending_conn_bda, 0, sizeof(_pending_conn_bda));
   }
 
@@ -82,6 +86,8 @@ public:
   bool isEnabled() const override { return _isEnabled; }
 
   bool isConnected() const override;
+
+  void setFastMode(bool fast) override;
 
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
