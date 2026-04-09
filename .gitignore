@@ -17,3 +17,10 @@ compile_commands.json
 .venv/
 venv/
 platformio.local.ini
+
+# Build output directories
+test build/
+build_and_organize_all.bat
+build_and_organize_all.ps1
+build_firmware.bat
+build_firmware.ps1

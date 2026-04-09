@@ -55,6 +55,10 @@
 #define MAX_LORA_TX_POWER LORA_TX_POWER
 #endif
 
+#ifndef AGC_RESET_INTERVAL
+#define AGC_RESET_INTERVAL 500   // default 500 seconds
+#endif
+
 #ifndef MAX_CONTACTS
 #define MAX_CONTACTS 100
 #endif
@@ -105,6 +109,7 @@ public:
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
+  int getAGCResetInterval() const override { return AGC_RESET_INTERVAL * 1000; }  // milliseconds
   int calcRxDelay(float score, uint32_t air_time) const override;
   uint32_t getRetransmitDelay(const mesh::Packet *packet) override;
   uint32_t getDirectRetransmitDelay(const mesh::Packet *packet) override;
@@ -194,6 +199,7 @@ private:
   void checkCLIRescueCmd();
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
+  void initOfflineQueue();
 
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
@@ -233,7 +239,8 @@ private:
     bool isChannelMsg() const;
   };
   int offline_queue_len;
-  Frame offline_queue[OFFLINE_QUEUE_SIZE];
+  int offline_queue_max;
+  Frame* offline_queue;
 
   struct AckTableEntry {
     unsigned long msg_sent;

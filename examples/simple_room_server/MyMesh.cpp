@@ -3,6 +3,7 @@
 #define REPLY_DELAY_MILLIS          1500
 #define PUSH_NOTIFY_DELAY_MILLIS    2000
 #define SYNC_PUSH_INTERVAL          1200
+#define IDLE_PUSH_INTERVAL          10000  // Longer interval when no pending work (10 sec)
 
 #define PUSH_ACK_TIMEOUT_FLOOD      12000
 #define PUSH_TIMEOUT_BASE           4000
@@ -286,6 +287,46 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   return true;
 }
 
+void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32_t timestamp,
+                          const uint8_t *app_data, size_t app_data_len) {
+  mesh::Mesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len); // chain to super impl
+
+  // Parse advert data to check for coresense nodes
+  AdvertDataParser parser(app_data, app_data_len);
+  if (parser.isValid() && parser.hasName()) {
+    const char* node_name = parser.getName();
+    
+    // Check if "coresense" is in the name (case-insensitive)
+    char name_lower[MAX_ADVERT_DATA_SIZE];
+    strncpy(name_lower, node_name, sizeof(name_lower) - 1);
+    name_lower[sizeof(name_lower) - 1] = '\0';
+    
+    // Convert to lowercase for comparison
+    for (int i = 0; name_lower[i]; i++) {
+      if (name_lower[i] >= 'A' && name_lower[i] <= 'Z') {
+        name_lower[i] = name_lower[i] + ('a' - 'A');
+      }
+    }
+    
+    // Sync RTC if "coresense" is found in the name
+    if (strstr(name_lower, "coresense") != NULL) {
+      uint32_t current_time = getRTCClock()->getCurrentTime();
+      int32_t time_diff = (int32_t)(timestamp - current_time);
+      
+      // Only sync if time difference is significant (more than 2 seconds)
+      if (time_diff > 2 || time_diff < -2) {
+        getRTCClock()->setCurrentTime(timestamp);
+        
+        MESH_DEBUG_PRINT("RTC synced with CoreSense node '");
+        MESH_DEBUG_PRINT(node_name);
+        MESH_DEBUG_PRINT("', adjusted by ");
+        MESH_DEBUG_PRINT(time_diff);
+        MESH_DEBUG_PRINTLN(" seconds");
+      }
+    }
+  }
+}
+
 void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const mesh::Identity &sender,
                             uint8_t *data, size_t len) {
   if (packet->getPayloadType() == PAYLOAD_TYPE_ANON_REQ) { // received an initial request by a possible admin
@@ -488,12 +529,25 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         // mesh::Utils::sha256((uint8_t *)&expected_ack_crc, 4, temp, 5 + text_len, self_id.pub_key,
         // PUB_KEY_SIZE);
 
-        auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
-        if (reply) {
-          if (client->out_path_len == OUT_PATH_UNKNOWN) {
-            sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+        if (packet->isRouteFlood()) {
+          // use createPathReturn to piggyback CLI response on PATH packet
+          mesh::Packet *path = createPathReturn(client->id, secret, packet->path, packet->path_len,
+                                                PAYLOAD_TYPE_TXT_MSG, temp, 5 + text_len);
+          if (path) {
+            sendFlood(path, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
           } else {
-            sendDirect(reply, client->out_path, client->out_path_len, delay_millis + SERVER_RESPONSE_DELAY);
+            // fallback to plain datagram if response too large for PATH packet
+            auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+            if (reply) sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+          }
+        } else {
+          auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+          if (reply) {
+            if (client->out_path_len != OUT_PATH_UNKNOWN) {
+              sendDirect(reply, client->out_path, client->out_path_len, delay_millis + SERVER_RESPONSE_DELAY);
+            } else {
+              sendFlood(reply, delay_millis + SERVER_RESPONSE_DELAY, packet->getPathHashSize());
+            }
           }
         }
       }
@@ -855,10 +909,13 @@ void MyMesh::loop() {
     next_client_idx = (next_client_idx + 1) % acl.getNumClients(); // round robin polling for each client
 
     if (did_push) {
-      next_push = futureMillis(SYNC_PUSH_INTERVAL);
+      next_push = futureMillis(SYNC_PUSH_INTERVAL);  // Active: fast polling
+    } else if (next_client_idx == 0) {
+      // Completed full round-robin with no pushes - go to idle mode
+      next_push = futureMillis(IDLE_PUSH_INTERVAL);
     } else {
-      // were no unsynced posts for curr client, so proccess next client much quicker! (in next loop())
-      next_push = futureMillis(SYNC_PUSH_INTERVAL / 8);
+      // Still scanning clients, use moderate interval
+      next_push = futureMillis(SYNC_PUSH_INTERVAL / 4);
     }
   }
 

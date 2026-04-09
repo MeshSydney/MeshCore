@@ -212,8 +212,20 @@ bool MyMesh::Frame::isChannelMsg() const {
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
 }
 
+void MyMesh::initOfflineQueue() {
+#if defined(BOARD_HAS_PSRAM) && defined(ESP32)
+  if (offline_queue == nullptr) {
+    offline_queue = (Frame*) ps_malloc(OFFLINE_QUEUE_SIZE * sizeof(Frame));
+  }
+#endif
+  if (offline_queue == nullptr) {
+    offline_queue = new Frame[OFFLINE_QUEUE_SIZE];
+  }
+  offline_queue_max = OFFLINE_QUEUE_SIZE;
+}
+
 void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
-  if (offline_queue_len >= OFFLINE_QUEUE_SIZE) {
+  if (offline_queue_len >= offline_queue_max) {
     MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
     int pos = 0;
     while (pos < offline_queue_len) {
@@ -841,6 +853,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _iter_started = false;
   _cli_rescue = false;
   offline_queue_len = 0;
+  offline_queue_max = 0;
+  offline_queue = nullptr;
   app_target_ver = 0;
   clearPendingReqs();
   next_ack_idx = 0;
@@ -871,6 +885,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 }
 
 void MyMesh::begin(bool has_display) {
+  initContacts();
+  initOfflineQueue();
   BaseChatMesh::begin();
 
   if (!_store->loadMainIdentity(self_id)) {
@@ -979,7 +995,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
     out_frame[i++] = FIRMWARE_VER_CODE;
-    out_frame[i++] = MAX_CONTACTS / 2;   // v3+
+    out_frame[i++] = (uint8_t)min(getMaxContacts() / 2, 255);   // v3+
     out_frame[i++] = MAX_GROUP_CHANNELS; // v3+
     memcpy(&out_frame[i], &_prefs.ble_pin, 4);
     i += 4;

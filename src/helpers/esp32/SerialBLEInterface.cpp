@@ -26,7 +26,7 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   // Create the BLE Device
   BLEDevice::init(dev_name);
   BLEDevice::setSecurityCallbacks(this);
-  BLEDevice::setMTU(MAX_FRAME_SIZE);
+  BLEDevice::setMTU(512);
 
   BLESecurity  sec;
   sec.setStaticPIN(pin_code);
@@ -180,25 +180,30 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
   return 0;
 }
 
-#define  BLE_WRITE_MIN_INTERVAL   60
+#define  BLE_BURST_INTERVAL   15   // millis between send bursts
+#define  BLE_BURST_MAX_FRAMES  4   // max frames to send per burst
 
 bool SerialBLEInterface::isWriteBusy() const {
-  return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;   // still too soon to start another write?
+  return send_queue_len >= (FRAME_QUEUE_SIZE * 2 / 3);   // only busy when queue is filling up
 }
 
 size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
-  if (send_queue_len > 0   // first, check send queue
-    && millis() >= _last_write + BLE_WRITE_MIN_INTERVAL    // space the writes apart
+  if (send_queue_len > 0
+    && millis() >= _last_write + BLE_BURST_INTERVAL
   ) {
     _last_write = millis();
-    pTxCharacteristic->setValue(send_queue[0].buf, send_queue[0].len);
-    pTxCharacteristic->notify();
+    int burst = send_queue_len < BLE_BURST_MAX_FRAMES ? send_queue_len : BLE_BURST_MAX_FRAMES;
+    for (int b = 0; b < burst; b++) {
+      pTxCharacteristic->setValue(send_queue[0].buf, send_queue[0].len);
+      pTxCharacteristic->notify();
 
-    BLE_DEBUG_PRINTLN("writeBytes: sz=%d, hdr=%d", (uint32_t)send_queue[0].len, (uint32_t) send_queue[0].buf[0]);
+      BLE_DEBUG_PRINTLN("writeBytes: sz=%d, hdr=%d", (uint32_t)send_queue[0].len, (uint32_t) send_queue[0].buf[0]);
 
-    send_queue_len--;
-    for (int i = 0; i < send_queue_len; i++) {   // delete top item from queue
-      send_queue[i] = send_queue[i + 1];
+      send_queue_len--;
+      for (int i = 0; i < send_queue_len; i++) {
+        send_queue[i] = send_queue[i + 1];
+      }
+      if (b + 1 < burst) delay(5);  // give BLE stack time between notifications
     }
   }
 

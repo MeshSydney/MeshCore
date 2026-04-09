@@ -372,11 +372,13 @@ bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, Cayen
     #if ENV_INCLUDE_BME680
     if (BME680_initialized) {
       if (BME680.performReading()) {
-        telemetry.addTemperature(TELEM_CHANNEL_SELF, BME680.temperature);
-        telemetry.addRelativeHumidity(TELEM_CHANNEL_SELF, BME680.humidity);
-        telemetry.addBarometricPressure(TELEM_CHANNEL_SELF, BME680.pressure / 100);
-        telemetry.addAltitude(TELEM_CHANNEL_SELF, 44330.0 * (1.0 - pow((BME680.pressure / 100) / TELEM_BME680_SEALEVELPRESSURE_HPA, 0.1903)));
-        telemetry.addAnalogInput(next_available_channel, BME680.gas_resistance);
+        // Use channel 2 for BME680 data so MCU temperature can use channel 1
+        telemetry.addTemperature(TELEM_CHANNEL_SELF + 1, BME680.temperature);
+        telemetry.addRelativeHumidity(TELEM_CHANNEL_SELF + 1, BME680.humidity);
+        telemetry.addBarometricPressure(TELEM_CHANNEL_SELF + 1, BME680.pressure / 100);
+        telemetry.addAltitude(TELEM_CHANNEL_SELF + 1, 44330.0 * (1.0 - pow((BME680.pressure / 100) / TELEM_BME680_SEALEVELPRESSURE_HPA, 0.1903)));
+        // Gas resistance in kOhms (divide by 1000 to fit in signed 16-bit range of ±327.67)
+        telemetry.addAnalogInput(next_available_channel, BME680.gas_resistance / 1000.0);
         next_available_channel++;
       }
     }

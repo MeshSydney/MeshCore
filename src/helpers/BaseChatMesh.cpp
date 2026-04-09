@@ -9,6 +9,26 @@
   #define TXT_ACK_DELAY     200
 #endif
 
+void BaseChatMesh::initContacts() {
+#if defined(BOARD_HAS_PSRAM) && defined(ESP32)
+  if (contacts == nullptr) {
+    contacts = (ContactInfo*) ps_calloc(MAX_CONTACTS, sizeof(ContactInfo));
+  }
+  if (sort_array == nullptr) {
+    sort_array = (int*) ps_calloc(MAX_CONTACTS, sizeof(int));
+  }
+#endif
+  if (contacts == nullptr) {
+    max_contacts = CONTACTS_SRAM_FALLBACK;
+    contacts   = new ContactInfo[max_contacts];
+    sort_array = new int[max_contacts];
+    memset(contacts, 0, max_contacts * sizeof(ContactInfo));
+    memset(sort_array, 0, max_contacts * sizeof(int));
+  } else {
+    max_contacts = MAX_CONTACTS;
+  }
+}
+
 void BaseChatMesh::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis) {
   sendFlood(pkt, delay_millis);
 }
@@ -68,7 +88,7 @@ void BaseChatMesh::bootstrapRTCfromContacts() {
 }
 
 ContactInfo* BaseChatMesh::allocateContactSlot() {
-  if (num_contacts < MAX_CONTACTS) {
+  if (num_contacts < max_contacts) {
     return &contacts[num_contacts++];
   } else if (shouldOverwriteWhenFull()) {
     // Find oldest non-favourite contact by oldest lastmod timestamp
@@ -298,7 +318,20 @@ bool BaseChatMesh::onPeerPathRecv(mesh::Packet* packet, int sender_idx, const ui
 
   ContactInfo& from = contacts[i];
 
-  return onContactPathRecv(from, packet->path, packet->path_len, path, path_len, extra_type, extra, extra_len);
+  bool result = onContactPathRecv(from, packet->path, packet->path_len, path, path_len, extra_type, extra, extra_len);
+
+  // Handle CLI text response embedded in PATH packet (sent by repeater via createPathReturn)
+  if (extra_type == PAYLOAD_TYPE_TXT_MSG && extra_len > 5) {
+    uint8_t flags = extra[4] >> 2;
+    if (flags == TXT_TYPE_CLI_DATA) {
+      uint32_t timestamp;
+      memcpy(&timestamp, extra, 4);
+      extra[extra_len] = 0; // null terminator for text
+      onCommandDataRecv(from, packet, timestamp, (const char *)&extra[5]);
+    }
+  }
+
+  return result;
 }
 
 bool BaseChatMesh::onContactPathRecv(ContactInfo& from, uint8_t* in_path, uint8_t in_path_len, uint8_t* out_path, uint8_t out_path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) {

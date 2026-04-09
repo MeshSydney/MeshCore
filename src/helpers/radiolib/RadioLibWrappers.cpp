@@ -26,6 +26,7 @@ void setFlag(void) {
 
 void RadioLibWrapper::begin() {
   _radio->setPacketReceivedAction(setFlag);  // this is also SentComplete interrupt
+  _radio->setPreambleLength(LORA_SF <= 8 ? _preamble_long : _preamble_short); // longer preamble for lower SF where it has minimal throughput impact
   state = STATE_IDLE;
 
   if (_board->getStartupReason() == BD_STARTUP_RX_PACKET) {  // received a LoRa packet (while in deep sleep)
