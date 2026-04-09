@@ -58,7 +58,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 
 ---
 
-## 8. Repeater — Node/Channel Blacklisting (`examples/simple_repeater/`)
+## 8. Repeater — Node/Channel Blacklisting + Sydney Mesh Defaults (`examples/simple_repeater/`)
 - **New blacklist system** with two independent lists:
   - **Path blacklist** (`/path_bl`): drops flood packets whose path contains a matching pubkey-hash prefix
   - **Channel blacklist** (`/chan_bl`): drops group-channel packets whose channel hash matches
@@ -69,6 +69,20 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 - Retry responses now send `"(retry)"` instead of silent empty string
 - Replay-attack path now sends an explicit `"(ERR: timestamp)"` error back to the client
 - CLI responses on flood packets use **`createPathReturn`**
+- **Sydney Mesh common settings are now compile-time defaults** (via `[repeater_settings]`) — applied to any env that `extends = repeater_settings`, wired through the constructor `#ifdef` blocks:
+
+| Setting | Value | Equivalent CLI command |
+|---|---|---|
+| AGC reset interval | 500 s | `set agc.reset.interval 500` |
+| Multi-ACKs | enabled | `set multi.acks 1` |
+| Advert interval | 240 min | `set advert.interval 240` |
+| Flood advert interval | 24 h | `set flood.advert.interval 24` |
+| TX delay | 2.0 (mobile profile) | `set txdelay 2` |
+| Direct TX delay | 2.0 (mobile profile) | `set direct.txdelay 2` |
+| Path hash mode | 1 (2 bytes/hop) | `set path.hash.mode 1` |
+| Loop detect | minimal | `set loop.detect minimal` |
+| Power saving | on | `powersaving on` |
+| Guest password | (blank) | `set guest.password` |
 
 ---
 

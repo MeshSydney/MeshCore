@@ -1063,6 +1063,38 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_max = 64;
   _prefs.interference_threshold = 0; // disabled
 
+  // compile-time overrides from [repeater_settings] / platformio.ini
+#ifdef REPEATER_TX_DELAY
+  _prefs.tx_delay_factor = REPEATER_TX_DELAY;
+#endif
+#ifdef REPEATER_DIRECT_TX_DELAY
+  _prefs.direct_tx_delay_factor = REPEATER_DIRECT_TX_DELAY;
+#endif
+#ifdef REPEATER_AGC_RESET_INTERVAL
+  _prefs.agc_reset_interval = REPEATER_AGC_RESET_INTERVAL / 4;  // stored in 4-second units
+#endif
+#ifdef REPEATER_MULTI_ACKS
+  _prefs.multi_acks = REPEATER_MULTI_ACKS;
+#endif
+#ifdef REPEATER_ADVERT_INTERVAL
+  _prefs.advert_interval = REPEATER_ADVERT_INTERVAL / 2;  // stored in 2-minute units
+#endif
+#ifdef REPEATER_FLOOD_ADVERT_INTERVAL
+  _prefs.flood_advert_interval = REPEATER_FLOOD_ADVERT_INTERVAL;  // stored in hours
+#endif
+#ifdef REPEATER_PATH_HASH_MODE
+  _prefs.path_hash_mode = REPEATER_PATH_HASH_MODE;
+#endif
+#ifdef REPEATER_LOOP_DETECT
+  _prefs.loop_detect = REPEATER_LOOP_DETECT;
+#endif
+#ifdef REPEATER_POWERSAVING
+  _prefs.powersaving_enabled = REPEATER_POWERSAVING;
+#endif
+#ifdef REPEATER_GUEST_PASSWORD
+  StrHelper::strncpy(_prefs.guest_password, REPEATER_GUEST_PASSWORD, sizeof(_prefs.guest_password));
+#endif
+
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled
   _prefs.bridge_delay   = 500;  // milliseconds
