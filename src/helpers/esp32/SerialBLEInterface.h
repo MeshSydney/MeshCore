@@ -19,6 +19,7 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   unsigned long _last_write;
   unsigned long adv_restart_time;
   unsigned long _conn_params_update_time;  // 0 = no pending update
+  unsigned long _phy_update_time;           // 0 = no pending PHY update (staggered after conn params)
   esp_bd_addr_t _pending_conn_bda;
 
   struct Frame {
@@ -63,6 +64,7 @@ public:
     last_conn_id = 0;
     send_queue_len = recv_queue_len = 0;
     _conn_params_update_time = 0;
+    _phy_update_time = 0;
     memset(_pending_conn_bda, 0, sizeof(_pending_conn_bda));
   }
 

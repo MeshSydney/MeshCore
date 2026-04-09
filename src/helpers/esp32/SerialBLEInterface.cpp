@@ -28,6 +28,10 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   BLEDevice::setSecurityCallbacks(this);
   BLEDevice::setMTU(512);
 
+  // Prefer 2M PHY for all future connections (BLE 5.0 — doubles air data rate).
+  // If the peer doesn't support it, negotiation falls back to 1M PHY automatically.
+  esp_ble_gap_set_prefered_default_phy(ESP_BLE_GAP_PHY_2M_PREF_MASK, ESP_BLE_GAP_PHY_2M_PREF_MASK);
+
   BLESecurity  sec;
   sec.setStaticPIN(pin_code);
   sec.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
@@ -102,7 +106,13 @@ void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t 
   // functions re-entrantly from within BLE task callbacks deadlocks the internal
   // Bluedroid queue, causing ~10s freezes. We defer to checkRecvFrame() instead.
   memcpy(_pending_conn_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-  _conn_params_update_time = millis() + 500;  // allow MTU exchange to complete first
+  // MTU exchange takes 1-2 connection events on the default connect interval (~30-50ms).
+  // 100ms is ample time for it to finish before we request tighter conn params.
+  _conn_params_update_time = millis() + 100;
+  // PHY update fires 300ms after conn params — enough time for the central to accept/reject
+  // the conn param negotiation (1-2 events at the new 15ms interval = ~30ms) before
+  // we issue a second LL procedure. The two must never overlap or the stack freezes.
+  _phy_update_time = millis() + 400;
 }
 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
@@ -188,7 +198,7 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
   return 0;
 }
 
-#define  BLE_WRITE_MIN_INTERVAL   10   // millis between BLE notifications (aligned with requested conn interval)
+#define  BLE_WRITE_MIN_INTERVAL   8   // millis between BLE notifications (faster than 15ms max so we don't skip events)
 
 bool SerialBLEInterface::isWriteBusy() const {
   return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;  // don't push data faster than BLE can send it
@@ -200,11 +210,20 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
     _conn_params_update_time = 0;
     esp_ble_conn_update_params_t conn_params = {};
     memcpy(conn_params.bda, _pending_conn_bda, sizeof(esp_bd_addr_t));
-    conn_params.min_int = 0x08;    // 10ms  (units of 1.25ms)
-    conn_params.max_int = 0x10;    // 20ms
+    conn_params.min_int = 0x06;    // 7.5ms (units of 1.25ms) — BLE spec minimum; Android honours this
+    conn_params.max_int = 0x0C;    // 15ms — iOS foreground floor; stack picks lowest it will accept
     conn_params.latency = 0;
     conn_params.timeout = 0x01F0;  // 4s supervision timeout
     esp_ble_gap_update_conn_params(&conn_params);
+  }
+
+  // Apply deferred 2M PHY upgrade — kept separate so it never races the conn params update.
+  // The two LL procedures running back-to-back caused multi-second freezes.
+  if (_phy_update_time && millis() >= _phy_update_time) {
+    _phy_update_time = 0;
+    esp_ble_gap_set_prefered_phy(_pending_conn_bda, 0,
+      ESP_BLE_GAP_PHY_2M_PREF_MASK, ESP_BLE_GAP_PHY_2M_PREF_MASK,
+      ESP_BLE_GAP_PHY_OPTIONS_NO_PREF);
   }
 
   if (send_queue_len > 0
