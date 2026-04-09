@@ -8,7 +8,6 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 - **Frequency changed** from 869.618 MHz (EU) → **916.575 MHz** (AU/US region)
 - **Spreading factor changed** from SF8 → **SF7**
 - Added `LORA_CR=8` (coding rate)
-- Removed `ENABLE_ADVERT_ON_BOOT`
 - Added shared `[repeater_settings]` PlatformIO config section to avoid duplicating repeater build flags across variants
 
 ---
