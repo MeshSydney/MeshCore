@@ -95,6 +95,14 @@ void SerialBLEInterface::onConnect(BLEServer* pServer) {
 void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
   BLE_DEBUG_PRINTLN("onConnect(), conn_id=%d, mtu=%d", param->connect.conn_id, pServer->getPeerMTU(param->connect.conn_id));
   last_conn_id = param->connect.conn_id;
+
+  // Schedule a connection parameter update to be applied from the main loop.
+  // IMPORTANT: esp_ble_gap_update_conn_params() must NOT be called directly here
+  // because this callback runs inside the Bluedroid BT task. Calling BLE API
+  // functions re-entrantly from within BLE task callbacks deadlocks the internal
+  // Bluedroid queue, causing ~10s freezes. We defer to checkRecvFrame() instead.
+  memcpy(_pending_conn_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+  _conn_params_update_time = millis() + 500;  // allow MTU exchange to complete first
 }
 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
@@ -180,30 +188,37 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
   return 0;
 }
 
-#define  BLE_BURST_INTERVAL   15   // millis between send bursts
-#define  BLE_BURST_MAX_FRAMES  4   // max frames to send per burst
+#define  BLE_WRITE_MIN_INTERVAL   10   // millis between BLE notifications (aligned with requested conn interval)
 
 bool SerialBLEInterface::isWriteBusy() const {
-  return send_queue_len >= (FRAME_QUEUE_SIZE * 2 / 3);   // only busy when queue is filling up
+  return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;  // don't push data faster than BLE can send it
 }
 
 size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
+  // Apply deferred connection parameter update from safe main-loop context.
+  if (_conn_params_update_time && millis() >= _conn_params_update_time) {
+    _conn_params_update_time = 0;
+    esp_ble_conn_update_params_t conn_params = {};
+    memcpy(conn_params.bda, _pending_conn_bda, sizeof(esp_bd_addr_t));
+    conn_params.min_int = 0x08;    // 10ms  (units of 1.25ms)
+    conn_params.max_int = 0x10;    // 20ms
+    conn_params.latency = 0;
+    conn_params.timeout = 0x01F0;  // 4s supervision timeout
+    esp_ble_gap_update_conn_params(&conn_params);
+  }
+
   if (send_queue_len > 0
-    && millis() >= _last_write + BLE_BURST_INTERVAL
+    && millis() >= _last_write + BLE_WRITE_MIN_INTERVAL
   ) {
     _last_write = millis();
-    int burst = send_queue_len < BLE_BURST_MAX_FRAMES ? send_queue_len : BLE_BURST_MAX_FRAMES;
-    for (int b = 0; b < burst; b++) {
-      pTxCharacteristic->setValue(send_queue[0].buf, send_queue[0].len);
-      pTxCharacteristic->notify();
+    pTxCharacteristic->setValue(send_queue[0].buf, send_queue[0].len);
+    pTxCharacteristic->notify();
 
-      BLE_DEBUG_PRINTLN("writeBytes: sz=%d, hdr=%d", (uint32_t)send_queue[0].len, (uint32_t) send_queue[0].buf[0]);
+    BLE_DEBUG_PRINTLN("writeBytes: sz=%d, hdr=%d", (uint32_t)send_queue[0].len, (uint32_t) send_queue[0].buf[0]);
 
-      send_queue_len--;
-      for (int i = 0; i < send_queue_len; i++) {
-        send_queue[i] = send_queue[i + 1];
-      }
-      if (b + 1 < burst) delay(5);  // give BLE stack time between notifications
+    send_queue_len--;
+    for (int i = 0; i < send_queue_len; i++) {   // delete top item from queue
+      send_queue[i] = send_queue[i + 1];
     }
   }
 

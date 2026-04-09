@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../BaseSerialInterface.h"
+#include "esp_gap_ble_api.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -17,6 +18,8 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _pin_code;
   unsigned long _last_write;
   unsigned long adv_restart_time;
+  unsigned long _conn_params_update_time;  // 0 = no pending update
+  esp_bd_addr_t _pending_conn_bda;
 
   struct Frame {
     uint8_t len;
@@ -59,6 +62,8 @@ public:
     _last_write = 0;
     last_conn_id = 0;
     send_queue_len = recv_queue_len = 0;
+    _conn_params_update_time = 0;
+    memset(_pending_conn_bda, 0, sizeof(_pending_conn_bda));
   }
 
   /**
