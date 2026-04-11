@@ -258,11 +258,11 @@ size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
       conn_params.min_int = 0x06;  // 7.5ms — full speed for contact/channel streaming
       conn_params.max_int = 0x0C;  // 15ms
     } else {
-      conn_params.min_int = 0xA0;  // 200ms — very relaxed idle; ample for push message delivery
-      conn_params.max_int = 0x190; // 500ms — iOS/Android both accept up to 4s; we use 500ms for headroom
+      conn_params.min_int = 0x24;  // 45ms — responsive idle; keeps push message latency low
+      conn_params.max_int = 0x48;  // 90ms — power-friendly without perceivable lag
     }
     conn_params.latency = 0;
-    conn_params.timeout = 0x0C80;  // 32s supervision timeout (must be > 2 × max_interval = 1s; bumped for reliability at slow interval)
+    conn_params.timeout = 0x01F0;  // ~5s supervision timeout (must be > 2 × max_interval = 180ms)
     esp_ble_gap_update_conn_params(&conn_params);
   }
 
