@@ -31,8 +31,8 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 ## 4. BLE Throughput Improvements (`src/helpers/esp32/SerialBLEInterface.*`)
 - MTU increased to **512 bytes**
 - Frame queue doubled: 4 → **8 slots**
-- **Burst send mode**: up to 4 frames sent per 15 ms window (vs single frame per 60 ms), improving companion app sync speed
-- `isWriteBusy()` now reflects queue fill level rather than a fixed timer
+- **Adaptive connection interval**: fast mode (7.5–15 ms) during sync vs idle mode (45–90 ms) when inactive — notifications sent every **8 ms** minimum (`BLE_WRITE_MIN_INTERVAL`), improving companion app sync speed
+- `isWriteBusy()` now reflects the 8 ms send interval rather than a fixed timer
 
 ---
 
@@ -53,8 +53,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 - Offline queue changed to **dynamic allocation** (`initOfflineQueue()`) — uses PSRAM on ESP32 for large queues
 - Added `AGC_RESET_INTERVAL` support (default 500 s), passed to radio wrapper
 - Device info response: `MAX_CONTACTS` capped correctly at 255 for the protocol byte
-- CLI responses on flood-routed packets now use **`createPathReturn`** (more efficient path piggyback)
-- **UI**: status LED heartbeat cycle extended from 4 s → **400 s** (much less frequent flash)
+- **UI** (`ui-orig`): status LED heartbeat cycle extended from 4 s → **400 s** (much less frequent flash)
 
 ---
 
@@ -70,6 +69,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 - Retry responses now send `"(retry)"` instead of silent empty string
 - Replay-attack path now sends an explicit `"(ERR: timestamp)"` error back to the client
 - CLI responses on flood packets use **`createPathReturn`**
+- Added **CoreSense RTC sync**: `onAdvertRecv` override automatically syncs the repeater's RTC from any node advertising a name containing `"coresense"` (>2 s drift threshold) — keeps timestamps accurate without manual intervention
 - **Sydney Mesh common settings are now compile-time defaults** (via `[repeater_settings]`) — applied to any env that `extends = repeater_settings`, wired through the constructor `#ifdef` blocks:
 
 | Setting | Value | Equivalent CLI command |

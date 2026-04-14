@@ -787,6 +787,38 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
       putNeighbour(id, timestamp, packet->getSNR());
     }
   }
+
+  // Sync RTC from CoreSense nodes
+  AdvertDataParser parser(app_data, app_data_len);
+  if (parser.isValid() && parser.hasName()) {
+    const char* node_name = parser.getName();
+
+    // Check if "coresense" is in the name (case-insensitive)
+    char name_lower[MAX_ADVERT_DATA_SIZE];
+    strncpy(name_lower, node_name, sizeof(name_lower) - 1);
+    name_lower[sizeof(name_lower) - 1] = '\0';
+    for (int i = 0; name_lower[i]; i++) {
+      if (name_lower[i] >= 'A' && name_lower[i] <= 'Z') {
+        name_lower[i] = name_lower[i] + ('a' - 'A');
+      }
+    }
+
+    if (strstr(name_lower, "coresense") != NULL) {
+      uint32_t current_time = getRTCClock()->getCurrentTime();
+      int32_t time_diff = (int32_t)(timestamp - current_time);
+
+      // Only sync if time difference is significant (more than 2 seconds)
+      if (time_diff > 2 || time_diff < -2) {
+        getRTCClock()->setCurrentTime(timestamp);
+
+        MESH_DEBUG_PRINT("RTC synced with CoreSense node '");
+        MESH_DEBUG_PRINT(node_name);
+        MESH_DEBUG_PRINT("', adjusted by ");
+        MESH_DEBUG_PRINT(time_diff);
+        MESH_DEBUG_PRINTLN(" seconds");
+      }
+    }
+  }
 }
 
 void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, const uint8_t *secret,
