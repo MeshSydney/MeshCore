@@ -65,6 +65,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 - Up to **16 entries per list**, 1–4 byte hex prefixes (matching all LoRa hash sizes)
 - Persistent storage on filesystem; loaded on boot, saved on every change
 - **CLI commands**: `blacklist path|chan list|add|rem|clear [hex[,hex,...]]`
+- **Command chaining**: multiple CLI commands can be sent in a single message separated by commas — each command is executed sequentially and responses are concatenated with comma delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining))
 - CLI reply delay reduced: 600 ms → **300 ms**
 - Retry responses now send `"(retry)"` instead of silent empty string
 - Replay-attack path now sends an explicit `"(ERR: timestamp)"` error back to the client
@@ -109,6 +110,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 | **T1000-E** | MAX_CONTACTS → 500 |
 | **XIAO nRF52** | Repeater now inherits from `[repeater_settings]` |
 | **XIAO S3 WIO** | `ESP32_CPU_FREQ=80` added |
+| **LilyGo T-Echo Lite** | **Battery**: Added `PIN_VBAT_MEAS_EN` (P0.31) — gated voltage divider must be enabled before ADC read; `pinMode(PIN_VBAT_READ, INPUT)` reclaims P0.02; 8-sample averaging with LilyGo's exact voltage formula. **I2C**: Corrected SDA/SCL from P0.04/P0.02 → P1.04/P1.02 (per LilyGo `IIC_1_SDA`/`IIC_1_SCL`). **GPS**: Corrected all five pin assignments (TX, RX, EN, Standby, PPS) to match LilyGo's `t_echo_lite_config.h`. **SPI**: Fixed `SPI_INTERFACES_COUNT` from `_PINNUM(0,2)` → `(2)`. **Headless builds**: Added `LilyGo_T-Echo-Lite-Core` base config and `_repeater` / `_companion_radio_ble` environments for screenless variants (strips display flags, source files, and GxEPD2 dependency). |
 
 ---
 

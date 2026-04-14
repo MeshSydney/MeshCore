@@ -14,11 +14,13 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
   - [System](#system)
   - [Routing](#routing)
   - [ACL](#acl)
+  - [Blacklist](#blacklist-repeater-only)
   - [Region Management](#region-management-v110)
     - [Region Examples](#region-examples)
   - [GPS](#gps-when-gps-support-is-compiled-in)
   - [Sensors](#sensors-when-sensor-support-is-compiled-in)
   - [Bridge](#bridge-when-bridge-support-is-compiled-in)
+- [Command Chaining](#command-chaining)
 
 ---
 
@@ -651,6 +653,63 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+### Blacklist (Repeater Only)
+
+Two independent blacklists allow repeaters to drop unwanted traffic — a **path blacklist** for flood packets and a **channel blacklist** for group-channel packets. Each list supports up to **16 entries**. Entries are 1–4 byte hex prefixes that match against LoRa pubkey-hash prefixes (path) or channel hashes (channel). Lists are persisted to the filesystem (`/path_bl` and `/chan_bl`) and loaded on boot.
+
+#### List blacklist entries
+**Usage:**
+- `blacklist path list`
+- `blacklist chan list`
+
+**Output:** Hex-encoded entries, one per line. Empty list returns `(empty)`.
+
+---
+
+#### Add blacklist entries
+**Usage:**
+- `blacklist path add <hex>[,<hex>,...]`
+- `blacklist chan add <hex>[,<hex>,...]`
+
+**Parameters:**
+- `hex`: 2–8 character hex string (1–4 bytes). Multiple entries can be comma-separated.
+
+**Examples:**
+```
+blacklist path add a1b2
+blacklist chan add ff,0a,3c4d
+```
+
+**Notes:**
+- Returns `+<hex>` for each entry added
+- Returns `(full)` if the list has reached 16 entries
+- Returns `(dup)` if the entry already exists
+
+---
+
+#### Remove blacklist entries
+**Usage:**
+- `blacklist path rem <hex>[,<hex>,...]`
+- `blacklist chan rem <hex>[,<hex>,...]`
+
+**Parameters:**
+- `hex`: Hex prefix to remove (must match an existing entry exactly)
+
+**Notes:**
+- Returns `-<hex>` for each entry removed
+- Returns `(not found)` if the entry does not exist
+
+---
+
+#### Clear all blacklist entries
+**Usage:**
+- `blacklist path clear`
+- `blacklist chan clear`
+
+**Note:** Returns `OK` and erases the saved file.
+
+---
+
 ### Region Management (v1.10.+)
 
 #### Bulk-load region lists
@@ -1021,3 +1080,27 @@ region save
 **Note:** Returns an error on boards without power management support.
 
 ---
+
+## Command Chaining
+
+Multiple CLI commands can be sent in a single message by separating them with commas. Each command is executed sequentially and individual responses are concatenated with commas as delimiters.
+
+**Syntax:**
+```
+<command1>,<command2>,<command3>
+```
+
+**Examples:**
+```
+set name MyRepeater,set lat -33.86,set lon 151.21
+```
+Returns: `name: MyRepeater,lat: -33.860001,lon: 151.210007`
+
+```
+blacklist path add aa,blacklist chan add bb
+```
+Returns: `+aa,+bb`
+
+**Notes:**
+- Leading spaces after commas are stripped
+- Each sub-command's reply is limited to 160 characters
