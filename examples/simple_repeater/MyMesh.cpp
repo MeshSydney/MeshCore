@@ -896,14 +896,11 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       char *reply = (char *)&temp[5];
       if (is_retry) {
         strcpy(reply, "(retry)");
-      } else if (strchr(command, ',') == NULL) {
-        // Single command - call directly (avoids extra stack from chaining buffers)
-        handleCommand(sender_timestamp, command, reply);
       } else {
         reply[0] = 0;
         int reply_remaining = 160;
         char *reply_ptr = reply;
-        char cmd_buf[160];
+        static char cmd_buf[160];
         strncpy(cmd_buf, command, sizeof(cmd_buf) - 1);
         cmd_buf[sizeof(cmd_buf) - 1] = 0;
         char *cmd_tok = cmd_buf;
@@ -915,7 +912,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
           // trim leading spaces
           while (*cmd_tok == ' ') cmd_tok++;
           if (*cmd_tok) {
-            char single_reply[160];
+            static char single_reply[160];
             single_reply[0] = 0;
             handleCommand(sender_timestamp, cmd_tok, single_reply);
             int slen = strlen(single_reply);
