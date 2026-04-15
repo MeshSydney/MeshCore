@@ -124,39 +124,44 @@ void loop() {
     Serial.print('\n');
     command[len - 1] = 0;  // replace newline with C string null terminator
     char reply[160];
-    reply[0] = 0;
-    int reply_remaining = sizeof(reply) - 1;
-    char *reply_ptr = reply;
-    char cmd_buf[sizeof(command)];
-    strncpy(cmd_buf, command, sizeof(cmd_buf) - 1);
-    cmd_buf[sizeof(cmd_buf) - 1] = 0;
-    char *cmd_tok = cmd_buf;
-    char *comma;
-    bool first = true;
-    while (cmd_tok && reply_remaining > 1) {
-      comma = strchr(cmd_tok, ',');
-      if (comma) *comma = 0;
-      while (*cmd_tok == ' ') cmd_tok++;
-      if (*cmd_tok) {
-        char single_reply[160];
-        single_reply[0] = 0;
-        the_mesh.handleCommand(0, cmd_tok, single_reply);  // NOTE: there is no sender_timestamp via serial!
-        int slen = strlen(single_reply);
-        if (slen > 0) {
-          if (!first && reply_remaining > 1) {
-            *reply_ptr++ = ',';
-            reply_remaining--;
+    if (strchr(command, ',') == NULL) {
+      // Single command - call directly (avoids extra stack from chaining buffers)
+      the_mesh.handleCommand(0, command, reply);  // NOTE: there is no sender_timestamp via serial!
+    } else {
+      reply[0] = 0;
+      int reply_remaining = sizeof(reply) - 1;
+      char *reply_ptr = reply;
+      char cmd_buf[sizeof(command)];
+      strncpy(cmd_buf, command, sizeof(cmd_buf) - 1);
+      cmd_buf[sizeof(cmd_buf) - 1] = 0;
+      char *cmd_tok = cmd_buf;
+      char *comma;
+      bool first = true;
+      while (cmd_tok && reply_remaining > 1) {
+        comma = strchr(cmd_tok, ',');
+        if (comma) *comma = 0;
+        while (*cmd_tok == ' ') cmd_tok++;
+        if (*cmd_tok) {
+          char single_reply[160];
+          single_reply[0] = 0;
+          the_mesh.handleCommand(0, cmd_tok, single_reply);  // NOTE: there is no sender_timestamp via serial!
+          int slen = strlen(single_reply);
+          if (slen > 0) {
+            if (!first && reply_remaining > 1) {
+              *reply_ptr++ = ',';
+              reply_remaining--;
+            }
+            int copy_len = (slen < reply_remaining) ? slen : reply_remaining;
+            memcpy(reply_ptr, single_reply, copy_len);
+            reply_ptr += copy_len;
+            reply_remaining -= copy_len;
+            first = false;
           }
-          int copy_len = (slen < reply_remaining) ? slen : reply_remaining;
-          memcpy(reply_ptr, single_reply, copy_len);
-          reply_ptr += copy_len;
-          reply_remaining -= copy_len;
-          first = false;
         }
+        cmd_tok = comma ? comma + 1 : NULL;
       }
-      cmd_tok = comma ? comma + 1 : NULL;
+      *reply_ptr = 0;
     }
-    *reply_ptr = 0;
     if (reply[0]) {
       Serial.print("  -> "); Serial.println(reply);
     }

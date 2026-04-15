@@ -896,6 +896,9 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       char *reply = (char *)&temp[5];
       if (is_retry) {
         strcpy(reply, "(retry)");
+      } else if (strchr(command, ',') == NULL) {
+        // Single command - call directly (avoids extra stack from chaining buffers)
+        handleCommand(sender_timestamp, command, reply);
       } else {
         reply[0] = 0;
         int reply_remaining = 160;
