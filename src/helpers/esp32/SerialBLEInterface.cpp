@@ -26,7 +26,11 @@ void SerialBLEInterface::begin(const char* prefix, char* name, uint32_t pin_code
   // Create the BLE Device
   BLEDevice::init(dev_name);
   BLEDevice::setSecurityCallbacks(this);
-  BLEDevice::setMTU(MAX_FRAME_SIZE);
+  BLEDevice::setMTU(512);
+
+  // Prefer 2M PHY for all future connections (BLE 5.0 — doubles air data rate).
+  // If the peer doesn't support it, negotiation falls back to 1M PHY automatically.
+  esp_ble_gap_set_prefered_default_phy(ESP_BLE_GAP_PHY_2M_PREF_MASK, ESP_BLE_GAP_PHY_2M_PREF_MASK);
 
   BLESecurity  sec;
   sec.setStaticPIN(pin_code);
@@ -95,6 +99,23 @@ void SerialBLEInterface::onConnect(BLEServer* pServer) {
 void SerialBLEInterface::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) {
   BLE_DEBUG_PRINTLN("onConnect(), conn_id=%d, mtu=%d", param->connect.conn_id, pServer->getPeerMTU(param->connect.conn_id));
   last_conn_id = param->connect.conn_id;
+
+  // Schedule a connection parameter update to be applied from the main loop.
+  // IMPORTANT: esp_ble_gap_update_conn_params() must NOT be called directly here
+  // because this callback runs inside the Bluedroid BT task. Calling BLE API
+  // functions re-entrantly from within BLE task callbacks deadlocks the internal
+  // Bluedroid queue, causing ~10s freezes. We defer to checkRecvFrame() instead.
+  memcpy(_pending_conn_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+  // MTU exchange takes 1-2 connection events on the default connect interval (~30-50ms).
+  // 100ms is ample time for it to finish before we request tighter conn params.
+  _conn_params_update_time = millis() + 100;
+  // PHY update fires 300ms after conn params — enough time for the central to accept/reject
+  // the conn param negotiation (1-2 events at the new 15ms interval = ~30ms) before
+  // we issue a second LL procedure. The two must never overlap or the stack freezes.
+  _phy_update_time = millis() + 400;
+  // Start in fast mode; MyMesh will call setFastMode(false) when sync is done.
+  _fast_mode = true;
+  _mode_change_time = 0;
 }
 
 void SerialBLEInterface::onMtuChanged(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
@@ -180,15 +201,73 @@ size_t SerialBLEInterface::writeFrame(const uint8_t src[], size_t len) {
   return 0;
 }
 
-#define  BLE_WRITE_MIN_INTERVAL   60
+#define  BLE_WRITE_MIN_INTERVAL   8   // millis between BLE notifications (faster than 15ms max so we don't skip events)
+
+void SerialBLEInterface::setFastMode(bool fast) {
+  if (fast == _fast_mode && _mode_change_time == 0) return;  // already in the right mode, nothing pending
+  _fast_mode = fast;
+  if (fast) {
+    // Switch to fast params quickly (20ms) so sync starts at full speed.
+    // Guard: don't clobber a still-pending initial conn params update.
+    if (_conn_params_update_time == 0 && _phy_update_time == 0) {
+      _mode_change_time = millis() + 20;
+    } else {
+      _mode_change_time = 0;  // initial setup handles it
+    }
+  } else {
+    // 2s cooldown before dialing back — lets any in-flight frames clear and
+    // avoids rapid oscillation if the app re-requests contacts immediately.
+    _mode_change_time = millis() + 2000;
+  }
+}
 
 bool SerialBLEInterface::isWriteBusy() const {
-  return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;   // still too soon to start another write?
+  return millis() < _last_write + BLE_WRITE_MIN_INTERVAL;  // don't push data faster than BLE can send it
 }
 
 size_t SerialBLEInterface::checkRecvFrame(uint8_t dest[]) {
-  if (send_queue_len > 0   // first, check send queue
-    && millis() >= _last_write + BLE_WRITE_MIN_INTERVAL    // space the writes apart
+  // Apply deferred connection parameter update from safe main-loop context.
+  if (_conn_params_update_time && millis() >= _conn_params_update_time) {
+    _conn_params_update_time = 0;
+    esp_ble_conn_update_params_t conn_params = {};
+    memcpy(conn_params.bda, _pending_conn_bda, sizeof(esp_bd_addr_t));
+    conn_params.min_int = 0x06;    // 7.5ms (units of 1.25ms) — BLE spec minimum; Android honours this
+    conn_params.max_int = 0x0C;    // 15ms — iOS foreground floor; stack picks lowest it will accept
+    conn_params.latency = 0;
+    conn_params.timeout = 0x01F0;  // 4s supervision timeout
+    esp_ble_gap_update_conn_params(&conn_params);
+  }
+
+  // Apply deferred 2M PHY upgrade — kept separate so it never races the conn params update.
+  // The two LL procedures running back-to-back caused multi-second freezes.
+  if (_phy_update_time && millis() >= _phy_update_time) {
+    _phy_update_time = 0;
+    esp_ble_gap_set_prefered_phy(_pending_conn_bda, 0,
+      ESP_BLE_GAP_PHY_2M_PREF_MASK, ESP_BLE_GAP_PHY_2M_PREF_MASK,
+      ESP_BLE_GAP_PHY_OPTIONS_NO_PREF);
+  }
+
+  // Dynamic mode switch requested by upper layer (setFastMode).
+  // Guard: only fire when no other LL procedure is in flight.
+  if (_mode_change_time && millis() >= _mode_change_time
+      && _conn_params_update_time == 0 && _phy_update_time == 0) {
+    _mode_change_time = 0;
+    esp_ble_conn_update_params_t conn_params = {};
+    memcpy(conn_params.bda, _pending_conn_bda, sizeof(esp_bd_addr_t));
+    if (_fast_mode) {
+      conn_params.min_int = 0x06;  // 7.5ms — full speed for contact/channel streaming
+      conn_params.max_int = 0x0C;  // 15ms
+    } else {
+      conn_params.min_int = 0x24;  // 45ms — responsive idle; keeps push message latency low
+      conn_params.max_int = 0x48;  // 90ms — power-friendly without perceivable lag
+    }
+    conn_params.latency = 0;
+    conn_params.timeout = 0x01F0;  // ~5s supervision timeout (must be > 2 × max_interval = 180ms)
+    esp_ble_gap_update_conn_params(&conn_params);
+  }
+
+  if (send_queue_len > 0
+    && millis() >= _last_write + BLE_WRITE_MIN_INTERVAL
   ) {
     _last_write = millis();
     pTxCharacteristic->setValue(send_queue[0].buf, send_queue[0].len);

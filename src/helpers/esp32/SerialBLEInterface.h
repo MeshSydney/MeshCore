@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../BaseSerialInterface.h"
+#include "esp_gap_ble_api.h"
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -17,13 +18,18 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
   uint32_t _pin_code;
   unsigned long _last_write;
   unsigned long adv_restart_time;
+  unsigned long _conn_params_update_time;  // 0 = no pending update
+  unsigned long _phy_update_time;           // 0 = no pending PHY update (staggered after conn params)
+  unsigned long _mode_change_time;          // 0 = no pending mode change
+  bool _fast_mode;                          // true = sync speed (7.5-15ms), false = idle speed (45-90ms)
+  esp_bd_addr_t _pending_conn_bda;
 
   struct Frame {
     uint8_t len;
     uint8_t buf[MAX_FRAME_SIZE];
   };
 
-  #define FRAME_QUEUE_SIZE  4
+  #define FRAME_QUEUE_SIZE  8
   int recv_queue_len;
   Frame recv_queue[FRAME_QUEUE_SIZE];
   int send_queue_len;
@@ -59,6 +65,11 @@ public:
     _last_write = 0;
     last_conn_id = 0;
     send_queue_len = recv_queue_len = 0;
+    _conn_params_update_time = 0;
+    _phy_update_time = 0;
+    _mode_change_time = 0;
+    _fast_mode = true;
+    memset(_pending_conn_bda, 0, sizeof(_pending_conn_bda));
   }
 
   /**
@@ -75,6 +86,8 @@ public:
   bool isEnabled() const override { return _isEnabled; }
 
   bool isConnected() const override;
+
+  void setFastMode(bool fast) override;
 
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;

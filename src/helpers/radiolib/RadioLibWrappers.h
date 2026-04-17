@@ -11,6 +11,7 @@ protected:
   int16_t _noise_floor, _threshold;
   uint16_t _num_floor_samples;
   int32_t _floor_sample_sum;
+  int _preamble_long = 32, _preamble_short = 16;
 
   void idle();
   void startRecv();
@@ -21,6 +22,7 @@ protected:
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; }
 
+  void setPreambleLengths(int long_preamble, int short_preamble) { _preamble_long = long_preamble; _preamble_short = short_preamble; }
   void begin() override;
   virtual void powerOff() { _radio->sleep(); }
   int recvRaw(uint8_t* bytes, int sz) override;

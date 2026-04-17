@@ -68,6 +68,15 @@ struct NeighbourInfo {
   int8_t snr; // multiplied by 4, user should divide to get float value
 };
 
+// Maximum bytes stored per blacklist entry (supports 1..4 byte prefixes matching path hash sizes)
+#define MAX_PATH_PREFIX_LEN   4
+#define MAX_BLACKLIST_ENTRIES 16
+
+struct BlacklistEntry {
+  uint8_t len;                      // 0 = empty/unused slot
+  uint8_t prefix[MAX_PATH_PREFIX_LEN];
+};
+
 #ifndef FIRMWARE_BUILD_DATE
   #define FIRMWARE_BUILD_DATE   "20 Mar 2026"
 #endif
@@ -102,6 +111,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long pending_discover_until;
   bool region_load_active;
   unsigned long dirty_contacts_expiry;
+  BlacklistEntry _path_blacklist[MAX_BLACKLIST_ENTRIES]; // path-prefix (pubkey prefix) blacklist
+  BlacklistEntry _chan_blacklist[MAX_BLACKLIST_ENTRIES];  // channel hash blacklist
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
@@ -128,6 +139,15 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 
   File openAppend(const char* fname);
   bool isLooped(const mesh::Packet* packet, const uint8_t max_counters[]);
+
+  // Blacklist helpers
+  bool isPathBlacklisted(const mesh::Packet* packet) const;
+  bool isChanBlacklisted(const mesh::Packet* packet) const;
+  void loadBlacklist(const char* fname, BlacklistEntry* list);
+  void saveBlacklist(const char* fname, const BlacklistEntry* list);
+  bool addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
+  bool removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
+  void formatBlacklist(const BlacklistEntry* list, char* reply);
 
 protected:
   float getAirtimeBudgetFactor() const override {

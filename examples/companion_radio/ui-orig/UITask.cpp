@@ -9,7 +9,7 @@
 #ifdef PIN_STATUS_LED
 #define LED_ON_MILLIS     20
 #define LED_ON_MSG_MILLIS 200
-#define LED_CYCLE_MILLIS  4000
+#define LED_CYCLE_MILLIS  400000  // 100x longer: 400 seconds between flashes
 #endif
 
 #ifndef USER_BTN_PRESSED

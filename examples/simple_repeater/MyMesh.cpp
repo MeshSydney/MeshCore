@@ -43,6 +43,9 @@
 
 #define FIRMWARE_VER_LEVEL       2
 
+#define PATH_BLACKLIST_FILE  "/path_bl"
+#define CHAN_BLACKLIST_FILE   "/chan_bl"
+
 #define REQ_TYPE_GET_STATUS         0x01 // same as _GET_STATS
 #define REQ_TYPE_KEEP_ALIVE         0x02
 #define REQ_TYPE_GET_TELEMETRY_DATA 0x03
@@ -56,7 +59,7 @@
 #define ANON_REQ_TYPE_OWNER        0x02
 #define ANON_REQ_TYPE_BASIC        0x03   // just remote clock
 
-#define CLI_REPLY_DELAY_MILLIS      600
+#define CLI_REPLY_DELAY_MILLIS      300
 
 #define LAZY_CONTACTS_WRITE_DELAY    5000
 
@@ -532,6 +535,149 @@ uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
   return getRNG()->nextInt(0, 5*t + 1);
 }
 
+/* ----------------------- Blacklist helpers -------------------------------- */
+
+// Returns true if any path entry in the packet matches a path-prefix blacklist entry.
+// Comparison uses min(entry.len, hash_size) bytes, so shorter entries match any hash size.
+bool MyMesh::isPathBlacklisted(const mesh::Packet* packet) const {
+  uint8_t hash_size  = packet->getPathHashSize();
+  uint8_t hash_count = packet->getPathHashCount();
+  const uint8_t* ptr = packet->path;
+  for (uint8_t h = 0; h < hash_count; h++, ptr += hash_size) {
+    for (int b = 0; b < MAX_BLACKLIST_ENTRIES; b++) {
+      if (_path_blacklist[b].len == 0) continue;
+      uint8_t cmp_len = (_path_blacklist[b].len < hash_size) ? _path_blacklist[b].len : hash_size;
+      if (memcmp(ptr, _path_blacklist[b].prefix, cmp_len) == 0) return true;
+    }
+  }
+  return false;
+}
+
+// Returns true if the channel hash at the start of a GRP_TXT/GRP_DATA payload matches
+// a channel-hash blacklist entry.  Currently the channel hash field is 1 byte (PATH_HASH_SIZE);
+// when the protocol is extended to longer channel hashes the comparison length will follow.
+bool MyMesh::isChanBlacklisted(const mesh::Packet* packet) const {
+  uint8_t pt = packet->getPayloadType();
+  if (pt != PAYLOAD_TYPE_GRP_TXT && pt != PAYLOAD_TYPE_GRP_DATA) return false;
+  if (packet->payload_len < PATH_HASH_SIZE) return false;
+  for (int b = 0; b < MAX_BLACKLIST_ENTRIES; b++) {
+    if (_chan_blacklist[b].len == 0) continue;
+    // compare as many bytes as the blacklist entry specifies, bounded by what is in the packet
+    uint8_t avail   = (packet->payload_len < MAX_PATH_PREFIX_LEN) ? (uint8_t)packet->payload_len : MAX_PATH_PREFIX_LEN;
+    uint8_t cmp_len = (_chan_blacklist[b].len < avail) ? _chan_blacklist[b].len : avail;
+    if (memcmp(packet->payload, _chan_blacklist[b].prefix, cmp_len) == 0) return true;
+  }
+  return false;
+}
+
+bool MyMesh::addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len) {
+  if (len == 0 || len > MAX_PATH_PREFIX_LEN) return false;
+  // if already present, consider success
+  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
+    if (list[i].len == len && memcmp(list[i].prefix, prefix, len) == 0) return true;
+  }
+  // find an empty slot
+  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
+    if (list[i].len == 0) {
+      list[i].len = len;
+      memcpy(list[i].prefix, prefix, len);
+      return true;
+    }
+  }
+  return false; // list is full
+}
+
+bool MyMesh::removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len) {
+  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
+    if (list[i].len == len && memcmp(list[i].prefix, prefix, len) == 0) {
+      list[i].len = 0; // mark slot as empty
+      return true;
+    }
+  }
+  return false;
+}
+
+void MyMesh::formatBlacklist(const BlacklistEntry* list, char* reply) {
+  char* dp = reply;
+  int count = 0;
+  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
+    if (list[i].len == 0) continue;
+    if (count > 0) *dp++ = '\n';
+    mesh::Utils::toHex(dp, list[i].prefix, list[i].len);
+    dp += list[i].len * 2;
+    count++;
+  }
+  if (count == 0) {
+    strcpy(reply, "-none-");
+  } else {
+    *dp = 0;
+  }
+}
+
+void MyMesh::loadBlacklist(const char* fname, BlacklistEntry* list) {
+  memset(list, 0, sizeof(BlacklistEntry) * MAX_BLACKLIST_ENTRIES);
+#if defined(RP2040_PLATFORM)
+  File f = _fs->open(fname, "r");
+#else
+  File f = _fs->open(fname);
+#endif
+  if (!f) return;
+  int idx = 0;
+  char line[MAX_PATH_PREFIX_LEN * 2 + 4];
+  int line_len = 0;
+  while (f.available() && idx < MAX_BLACKLIST_ENTRIES) {
+    int c = f.read();
+    if (c < 0) break;
+    if (c == '\n' || c == '\r') {
+      if (line_len >= 2 && (line_len % 2 == 0)) {
+        line[line_len] = 0;
+        uint8_t prefix[MAX_PATH_PREFIX_LEN];
+        int byte_len = line_len / 2;
+        if (byte_len <= MAX_PATH_PREFIX_LEN && mesh::Utils::fromHex(prefix, byte_len, line)) {
+          list[idx].len = (uint8_t)byte_len;
+          memcpy(list[idx].prefix, prefix, byte_len);
+          idx++;
+        }
+      }
+      line_len = 0;
+    } else if (line_len < (int)(sizeof(line) - 1)) {
+      line[line_len++] = (char)c;
+    }
+  }
+  // handle last line with no trailing newline
+  if (line_len >= 2 && (line_len % 2 == 0) && idx < MAX_BLACKLIST_ENTRIES) {
+    line[line_len] = 0;
+    uint8_t prefix[MAX_PATH_PREFIX_LEN];
+    int byte_len = line_len / 2;
+    if (byte_len <= MAX_PATH_PREFIX_LEN && mesh::Utils::fromHex(prefix, byte_len, line)) {
+      list[idx].len = (uint8_t)byte_len;
+      memcpy(list[idx].prefix, prefix, byte_len);
+    }
+  }
+  f.close();
+}
+
+void MyMesh::saveBlacklist(const char* fname, const BlacklistEntry* list) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  _fs->remove(fname);
+  File f = _fs->open(fname, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  File f = _fs->open(fname, "w");
+#else
+  File f = _fs->open(fname, "w", true);
+#endif
+  if (!f) return;
+  for (int i = 0; i < MAX_BLACKLIST_ENTRIES; i++) {
+    if (list[i].len == 0) continue;
+    char hex[MAX_PATH_PREFIX_LEN * 2 + 2];
+    mesh::Utils::toHex(hex, list[i].prefix, list[i].len);
+    f.println(hex);
+  }
+  f.close();
+}
+
+/* -------------------------------------------------------------------------- */
+
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
   // just try to determine region for packet (apply later in allowPacketForward())
   if (pkt->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD) {
@@ -545,6 +691,19 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
   } else {
     recv_pkt_region = NULL;
   }
+
+  // Drop packets whose path contains a blacklisted node prefix
+  if (isPathBlacklisted(pkt)) {
+    MESH_DEBUG_PRINTLN("filterRecvFloodPacket: path prefix blacklisted, dropping!");
+    return true;
+  }
+
+  // Drop group-channel packets whose channel hash is blacklisted
+  if (isChanBlacklisted(pkt)) {
+    MESH_DEBUG_PRINTLN("filterRecvFloodPacket: channel hash blacklisted, dropping!");
+    return true;
+  }
+
   // do normal processing
   return false;
 }
@@ -628,6 +787,38 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
       putNeighbour(id, timestamp, packet->getSNR());
     }
   }
+
+  // Sync RTC from CoreSense nodes
+  AdvertDataParser parser(app_data, app_data_len);
+  if (parser.isValid() && parser.hasName()) {
+    const char* node_name = parser.getName();
+
+    // Check if "coresense" is in the name (case-insensitive)
+    char name_lower[MAX_ADVERT_DATA_SIZE];
+    strncpy(name_lower, node_name, sizeof(name_lower) - 1);
+    name_lower[sizeof(name_lower) - 1] = '\0';
+    for (int i = 0; name_lower[i]; i++) {
+      if (name_lower[i] >= 'A' && name_lower[i] <= 'Z') {
+        name_lower[i] = name_lower[i] + ('a' - 'A');
+      }
+    }
+
+    if (strstr(name_lower, "coresense") != NULL) {
+      uint32_t current_time = getRTCClock()->getCurrentTime();
+      int32_t time_diff = (int32_t)(timestamp - current_time);
+
+      // Only sync if time difference is significant (more than 2 seconds)
+      if (time_diff > 2 || time_diff < -2) {
+        getRTCClock()->setCurrentTime(timestamp);
+
+        MESH_DEBUG_PRINT("RTC synced with CoreSense node '");
+        MESH_DEBUG_PRINT(node_name);
+        MESH_DEBUG_PRINT("', adjusted by ");
+        MESH_DEBUG_PRINT(time_diff);
+        MESH_DEBUG_PRINTLN(" seconds");
+      }
+    }
+  }
 }
 
 void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, const uint8_t *secret,
@@ -704,9 +895,42 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       char *command = (char *)&data[5];
       char *reply = (char *)&temp[5];
       if (is_retry) {
-        *reply = 0;
+        strcpy(reply, "(retry)");
       } else {
-        handleCommand(sender_timestamp, command, reply);
+        reply[0] = 0;
+        int reply_remaining = 160;
+        char *reply_ptr = reply;
+        static char cmd_buf[160];
+        strncpy(cmd_buf, command, sizeof(cmd_buf) - 1);
+        cmd_buf[sizeof(cmd_buf) - 1] = 0;
+        char *cmd_tok = cmd_buf;
+        char *comma;
+        bool first = true;
+        while (cmd_tok && reply_remaining > 1) {
+          comma = strchr(cmd_tok, ',');
+          if (comma) *comma = 0;
+          // trim leading spaces
+          while (*cmd_tok == ' ') cmd_tok++;
+          if (*cmd_tok) {
+            static char single_reply[160];
+            single_reply[0] = 0;
+            handleCommand(sender_timestamp, cmd_tok, single_reply);
+            int slen = strlen(single_reply);
+            if (slen > 0) {
+              if (!first && reply_remaining > 1) {
+                *reply_ptr++ = ',';
+                reply_remaining--;
+              }
+              int copy_len = (slen < reply_remaining) ? slen : reply_remaining;
+              memcpy(reply_ptr, single_reply, copy_len);
+              reply_ptr += copy_len;
+              reply_remaining -= copy_len;
+              first = false;
+            }
+          }
+          cmd_tok = comma ? comma + 1 : NULL;
+        }
+        *reply_ptr = 0;
       }
       int text_len = strlen(reply);
       if (text_len > 0) {
@@ -718,17 +942,45 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         memcpy(temp, &timestamp, 4);        // mostly an extra blob to help make packet_hash unique
         temp[4] = (TXT_TYPE_CLI_DATA << 2); // NOTE: legacy was: TXT_TYPE_PLAIN
 
-        auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
-        if (reply) {
-          if (client->out_path_len == OUT_PATH_UNKNOWN) {
-            sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+        if (packet->isRouteFlood()) {
+          // use createPathReturn to piggyback CLI response on PATH packet
+          mesh::Packet *path = createPathReturn(client->id, secret, packet->path, packet->path_len,
+                                                PAYLOAD_TYPE_TXT_MSG, temp, 5 + text_len);
+          if (path) {
+            sendFlood(path, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
           } else {
-            sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
+            // fallback to plain datagram if response too large for PATH packet
+            auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+            if (reply) sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+          }
+        } else {
+          auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+          if (reply) {
+            if (client->out_path_len != OUT_PATH_UNKNOWN) {
+              sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
+            } else {
+              sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+            }
           }
         }
       }
     } else {
       MESH_DEBUG_PRINTLN("onPeerDataRecv: possible replay attack detected");
+      // send error response so client doesn't timeout silently
+      uint8_t temp[166];
+      uint32_t timestamp = getRTCClock()->getCurrentTimeUnique();
+      memcpy(temp, &timestamp, 4);
+      temp[4] = (TXT_TYPE_CLI_DATA << 2);
+      strcpy((char *)&temp[5], "(ERR: timestamp)");
+      int text_len = strlen((char *)&temp[5]);
+      auto reply = createDatagram(PAYLOAD_TYPE_TXT_MSG, client->id, secret, temp, 5 + text_len);
+      if (reply) {
+        if (client->out_path_len != OUT_PATH_UNKNOWN) {
+          sendDirect(reply, client->out_path, client->out_path_len, CLI_REPLY_DELAY_MILLIS);
+        } else {
+          sendFlood(reply, CLI_REPLY_DELAY_MILLIS, packet->getPathHashSize());
+        }
+      }
     }
   }
 }
@@ -849,6 +1101,9 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _logging = false;
   region_load_active = false;
 
+  memset(_path_blacklist, 0, sizeof(_path_blacklist));
+  memset(_chan_blacklist,  0, sizeof(_chan_blacklist));
+
 #if MAX_NEIGHBOURS
   memset(neighbours, 0, sizeof(neighbours));
 #endif
@@ -872,6 +1127,38 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_advert_interval = 12; // 12 hours
   _prefs.flood_max = 64;
   _prefs.interference_threshold = 0; // disabled
+
+  // compile-time overrides from [repeater_settings] / platformio.ini
+#ifdef REPEATER_TX_DELAY
+  _prefs.tx_delay_factor = REPEATER_TX_DELAY;
+#endif
+#ifdef REPEATER_DIRECT_TX_DELAY
+  _prefs.direct_tx_delay_factor = REPEATER_DIRECT_TX_DELAY;
+#endif
+#ifdef REPEATER_AGC_RESET_INTERVAL
+  _prefs.agc_reset_interval = REPEATER_AGC_RESET_INTERVAL / 4;  // stored in 4-second units
+#endif
+#ifdef REPEATER_MULTI_ACKS
+  _prefs.multi_acks = REPEATER_MULTI_ACKS;
+#endif
+#ifdef REPEATER_ADVERT_INTERVAL
+  _prefs.advert_interval = REPEATER_ADVERT_INTERVAL / 2;  // stored in 2-minute units
+#endif
+#ifdef REPEATER_FLOOD_ADVERT_INTERVAL
+  _prefs.flood_advert_interval = REPEATER_FLOOD_ADVERT_INTERVAL;  // stored in hours
+#endif
+#ifdef REPEATER_PATH_HASH_MODE
+  _prefs.path_hash_mode = REPEATER_PATH_HASH_MODE;
+#endif
+#ifdef REPEATER_LOOP_DETECT
+  _prefs.loop_detect = REPEATER_LOOP_DETECT;
+#endif
+#ifdef REPEATER_POWERSAVING
+  _prefs.powersaving_enabled = REPEATER_POWERSAVING;
+#endif
+#ifdef REPEATER_GUEST_PASSWORD
+  StrHelper::strncpy(_prefs.guest_password, REPEATER_GUEST_PASSWORD, sizeof(_prefs.guest_password));
+#endif
 
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled
@@ -909,6 +1196,8 @@ void MyMesh::begin(FILESYSTEM *fs) {
   acl.load(_fs, self_id);
   // TODO: key_store.begin();
   region_map.load(_fs);
+  loadBlacklist(PATH_BLACKLIST_FILE, _path_blacklist);
+  loadBlacklist(CHAN_BLACKLIST_FILE,  _chan_blacklist);
 
 #if defined(WITH_BRIDGE)
   if (_prefs.bridge_enabled) {
@@ -1284,6 +1573,68 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     } else {
       sendNodeDiscoverReq();
       strcpy(reply, "OK - Discover sent");
+    }
+  } else if (memcmp(command, "blacklist ", 10) == 0) {
+    // Commands:
+    //   blacklist path list
+    //   blacklist path add <hex>[,<hex>,...]   (each hex = 2-8 even chars → 1-4 bytes)
+    //   blacklist path rem <hex>[,<hex>,...]
+    //   blacklist path clear
+    //   blacklist chan list
+    //   blacklist chan add <hex>[,<hex>,...]
+    //   blacklist chan rem <hex>[,<hex>,...]
+    //   blacklist chan clear
+    const char* parts[5];
+    int n = mesh::Utils::parseTextParts(command, parts, 5, ' ');
+
+    BlacklistEntry* list = NULL;
+    const char* list_file = NULL;
+    if (n >= 2 && strcmp(parts[1], "path") == 0) {
+      list = _path_blacklist;  list_file = PATH_BLACKLIST_FILE;
+    } else if (n >= 2 && strcmp(parts[1], "chan") == 0) {
+      list = _chan_blacklist;  list_file = CHAN_BLACKLIST_FILE;
+    }
+
+    if (list && n >= 3 && strcmp(parts[2], "list") == 0) {
+      formatBlacklist(list, reply);
+    } else if (list && n >= 3 && strcmp(parts[2], "clear") == 0) {
+      memset(list, 0, sizeof(BlacklistEntry) * MAX_BLACKLIST_ENTRIES);
+      saveBlacklist(list_file, list);
+      strcpy(reply, "OK");
+    } else if (list && n >= 4 && (strcmp(parts[2], "add") == 0 || strcmp(parts[2], "rem") == 0)) {
+      bool is_add = (parts[2][0] == 'a');
+      // parts[3] may be a comma-separated list of hex entries
+      char tokens[MAX_PATH_PREFIX_LEN * 2 * MAX_BLACKLIST_ENTRIES + MAX_BLACKLIST_ENTRIES + 2];
+      strncpy(tokens, parts[3], sizeof(tokens) - 1);
+      tokens[sizeof(tokens) - 1] = 0;
+
+      const char* tok_parts[MAX_BLACKLIST_ENTRIES];
+      int tok_n = mesh::Utils::parseTextParts(tokens, tok_parts, MAX_BLACKLIST_ENTRIES, ',');
+
+      bool any_ok = false, any_err = false;
+      for (int t = 0; t < tok_n; t++) {
+        int hex_str_len = strlen(tok_parts[t]);
+        if (hex_str_len < 2 || hex_str_len > MAX_PATH_PREFIX_LEN * 2 || (hex_str_len % 2) != 0) {
+          any_err = true; continue;
+        }
+        uint8_t prefix[MAX_PATH_PREFIX_LEN];
+        int byte_len = hex_str_len / 2;
+        if (!mesh::Utils::fromHex(prefix, byte_len, tok_parts[t])) {
+          any_err = true; continue;
+        }
+        bool ok = is_add ? addToBlacklist(list, prefix, (uint8_t)byte_len)
+                         : removeFromBlacklist(list, prefix, (uint8_t)byte_len);
+        if (ok) any_ok = true; else any_err = true;
+      }
+
+      // auto-save on any successful mutation
+      if (any_ok) saveBlacklist(list_file, list);
+
+      if (any_ok && !any_err)       strcpy(reply, "OK");
+      else if (any_ok && any_err)   strcpy(reply, "OK (partial)");
+      else                          strcpy(reply, is_add ? "Err - list full or bad hex" : "Err - not found or bad hex");
+    } else {
+      strcpy(reply, "Err - usage: blacklist <path|chan> <list|add|rem|clear> [hex[,hex,...]]");
     }
   } else{
     _cli.handleCommand(sender_timestamp, command, reply);  // common CLI commands

@@ -37,6 +37,11 @@ public:
   #define MAX_CONTACTS  32
 #endif
 
+// Safe fallback contact count when PSRAM is unavailable and SRAM must be used
+#ifndef CONTACTS_SRAM_FALLBACK
+  #define CONTACTS_SRAM_FALLBACK  200
+#endif
+
 #ifndef MAX_CONNECTIONS
   #define MAX_CONNECTIONS  16
 #endif
@@ -58,9 +63,10 @@ class BaseChatMesh : public mesh::Mesh {
 
   friend class ContactsIterator;
 
-  ContactInfo contacts[MAX_CONTACTS];
+  ContactInfo* contacts;
   int num_contacts;
-  int sort_array[MAX_CONTACTS];
+  int max_contacts;
+  int* sort_array;
   int matching_peer_indexes[MAX_SEARCH_RESULTS];
   unsigned long txt_send_timeout;
 #ifdef MAX_GROUP_CHANNELS
@@ -77,7 +83,10 @@ class BaseChatMesh : public mesh::Mesh {
 protected:
   BaseChatMesh(mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc, mesh::PacketManager& mgr, mesh::MeshTables& tables)
       : mesh::Mesh(radio, ms, rng, rtc, mgr, tables)
-  { 
+  {
+    contacts   = nullptr;
+    sort_array = nullptr;
+    max_contacts = 0;
     num_contacts = 0;
   #ifdef MAX_GROUP_CHANNELS
     memset(channels, 0, sizeof(channels));
@@ -88,6 +97,7 @@ protected:
     memset(connections, 0, sizeof(connections));
   }
 
+  void initContacts();
   void bootstrapRTCfromContacts();
   void resetContacts() { num_contacts = 0; }
   void populateContactFromAdvert(ContactInfo& ci, const mesh::Identity& id, const AdvertDataParser& parser, uint32_t timestamp);
@@ -165,6 +175,7 @@ public:
   bool  removeContact(ContactInfo& contact);
   bool  addContact(const ContactInfo& contact);
   int getNumContacts() const { return num_contacts; }
+  int getMaxContacts() const { return max_contacts; }
   bool getContactByIdx(uint32_t idx, ContactInfo& contact);
   ContactsIterator startContactsIterator();
   ChannelDetails* addChannel(const char* name, const char* psk_base64);

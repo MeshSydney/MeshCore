@@ -212,8 +212,20 @@ bool MyMesh::Frame::isChannelMsg() const {
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
 }
 
+void MyMesh::initOfflineQueue() {
+#if defined(BOARD_HAS_PSRAM) && defined(ESP32)
+  if (offline_queue == nullptr) {
+    offline_queue = (Frame*) ps_malloc(OFFLINE_QUEUE_SIZE * sizeof(Frame));
+  }
+#endif
+  if (offline_queue == nullptr) {
+    offline_queue = new Frame[OFFLINE_QUEUE_SIZE];
+  }
+  offline_queue_max = OFFLINE_QUEUE_SIZE;
+}
+
 void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
-  if (offline_queue_len >= OFFLINE_QUEUE_SIZE) {
+  if (offline_queue_len >= offline_queue_max) {
     MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
     int pos = 0;
     while (pos < offline_queue_len) {
@@ -841,6 +853,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _iter_started = false;
   _cli_rescue = false;
   offline_queue_len = 0;
+  offline_queue_max = 0;
+  offline_queue = nullptr;
   app_target_ver = 0;
   clearPendingReqs();
   next_ack_idx = 0;
@@ -871,6 +885,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 }
 
 void MyMesh::begin(bool has_display) {
+  initContacts();
+  initOfflineQueue();
   BaseChatMesh::begin();
 
   if (!_store->loadMainIdentity(self_id)) {
@@ -979,7 +995,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     int i = 0;
     out_frame[i++] = RESP_CODE_DEVICE_INFO;
     out_frame[i++] = FIRMWARE_VER_CODE;
-    out_frame[i++] = MAX_CONTACTS / 2;   // v3+
+    out_frame[i++] = (uint8_t)min(getMaxContacts() / 2, 255);   // v3+
     out_frame[i++] = MAX_GROUP_CHANNELS; // v3+
     memcpy(&out_frame[i], &_prefs.ble_pin, 4);
     i += 4;
@@ -1161,6 +1177,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       _iter = startContactsIterator();
       _iter_started = true;
       _most_recent_lastmod = 0;
+      _serial->setFastMode(true);  // switch to fast BLE interval for bulk contact streaming
     }
   } else if (cmd_frame[0] == CMD_SET_ADVERT_NAME && len >= 2) {
     int nlen = len - 1;
@@ -1317,6 +1334,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (cmd_frame[0] == CMD_SYNC_NEXT_MESSAGE) {
+    _serial->setFastMode(true);  // reset fast-mode cooldown — stay fast until message queue is drained
     int out_len;
     if ((out_len = getFromOfflineQueue(out_frame)) > 0) {
       _serial->writeFrame(out_frame, out_len);
@@ -1637,6 +1655,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     stopConnection(pub_key);
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_GET_CHANNEL && len >= 2) {
+    _serial->setFastMode(true);  // reset fast-mode cooldown — stay fast for the whole channel sync sequence
     uint8_t channel_idx = cmd_frame[1];
     ChannelDetails channel;
     if (getChannel(channel_idx, channel)) {
@@ -2104,6 +2123,7 @@ void MyMesh::checkSerialInterface() {
              4); // include the most recent lastmod, so app can update their 'since'
       _serial->writeFrame(out_frame, 5);
       _iter_started = false;
+      _serial->setFastMode(false);  // sync done — dial back to idle BLE interval
     }
   //} else if (!_serial->isWriteBusy()) {
   //  checkConnections();    // TODO - deprecate the 'Connections' stuff
