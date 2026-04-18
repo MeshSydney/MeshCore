@@ -88,6 +88,7 @@ struct AdvertJailEntry {
   unsigned long last_seen;                        // millis() when last advert seen
   unsigned long first_seen;                       // millis() when first advert seen
   uint16_t total_adverts;                         // total adverts received (for avg calc)
+  uint32_t last_advert_time;                      // advert timestamp (sender clock) for dedup
 };
 
 #ifndef FIRMWARE_BUILD_DATE
@@ -133,6 +134,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   CayenneLPP telemetry;
   unsigned long set_radio_at, revert_radio_at;
   unsigned long last_flood_advert_recv;
+  uint32_t last_flood_advert_time;  // advert timestamp for global rate limit dedup
   AdvertJailEntry _advert_jail[MAX_ADVERT_JAIL_ENTRIES];
   float pending_freq;
   float pending_bw;
