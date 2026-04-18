@@ -546,6 +546,91 @@ uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
 }
 
 bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
+  // Per-sender advert jail: drop flood adverts from senders advertising too frequently
+  if (_prefs.advert_jail > 0 && pkt->getPayloadType() == PAYLOAD_TYPE_ADVERT
+      && pkt->payload_len >= PUB_KEY_SIZE) {
+    unsigned long now = millis();
+    unsigned long jail_interval_ms = (unsigned long)_prefs.advert_jail * 3600UL * 1000UL;
+    const uint8_t* sender_key = &pkt->payload[0];  // pub_key is first in advert payload
+
+    // Search for existing entry, track best eviction candidate (lowest count, then oldest)
+    int found = -1;
+    int evict = 0;
+    for (int i = 0; i < MAX_ADVERT_JAIL_ENTRIES; i++) {
+      if (_advert_jail[i].last_seen != 0
+          && memcmp(_advert_jail[i].pub_key_prefix, sender_key, ADVERT_JAIL_KEY_SIZE) == 0) {
+        found = i;
+        break;
+      }
+      // Prefer empty slots, then lowest count, then oldest last_seen
+      if (_advert_jail[i].last_seen == 0) {
+        evict = i;
+      } else if (_advert_jail[evict].last_seen != 0) {
+        if (_advert_jail[i].count < _advert_jail[evict].count
+            || (_advert_jail[i].count == _advert_jail[evict].count
+                && (now - _advert_jail[i].last_seen) > (now - _advert_jail[evict].last_seen))) {
+          evict = i;
+        }
+      }
+    }
+
+    if (found >= 0) {
+      AdvertJailEntry& entry = _advert_jail[found];
+      unsigned long elapsed = now - entry.last_seen;
+      bool interval_ok = (elapsed >= jail_interval_ms);
+
+      // Decrement count by 1 if interval has passed
+      if (interval_ok && entry.count > 0) {
+        entry.count--;
+      }
+
+      // Exit jail when count drops below 2
+      if (entry.jailed && entry.count < 2) {
+        entry.jailed = false;
+      }
+
+      entry.last_seen = now;
+      entry.total_adverts++;
+
+      // Arrived too soon? Increment count
+      if (!interval_ok) {
+        entry.count++;
+      }
+
+      // Enter jail when count reaches threshold
+      if (!entry.jailed && entry.count >= ADVERT_JAIL_THRESHOLD) {
+        entry.jailed = true;
+      }
+
+      // While in jail, drop adverts that arrived too soon
+      if (entry.jailed && !interval_ok) {
+        MESH_DEBUG_PRINTLN("%s filterRecvFloodPacket: advert jailed (sender count=%d, jail=%dh)",
+          getLogDateTime(), entry.count, _prefs.advert_jail);
+        return true;  // DROP - sender is in jail
+      }
+    } else {
+      // New sender, add to jail table (evict lowest-count/oldest if full)
+      int slot = evict;
+      memset(&_advert_jail[slot], 0, sizeof(AdvertJailEntry));
+      memcpy(_advert_jail[slot].pub_key_prefix, sender_key, ADVERT_JAIL_KEY_SIZE);
+      _advert_jail[slot].last_seen = now;
+      _advert_jail[slot].first_seen = now;
+      _advert_jail[slot].total_adverts = 1;
+      _advert_jail[slot].count = 0;
+      _advert_jail[slot].jailed = false;
+    }
+  }
+
+  // Global rate limit incoming flood adverts (does not affect own adverts)
+  if (_prefs.advert_ratelimit > 0 && pkt->getPayloadType() == PAYLOAD_TYPE_ADVERT) {
+    unsigned long now = millis();
+    if (last_flood_advert_recv != 0 && (now - last_flood_advert_recv) < ((unsigned long)_prefs.advert_ratelimit * 1000)) {
+      MESH_DEBUG_PRINTLN("%s filterRecvFloodPacket: flood advert rate limited (interval %lu ms)", getLogDateTime(), now - last_flood_advert_recv);
+      return true;  // DROP this advert
+    }
+    last_flood_advert_recv = now;
+  }
+
   // just try to determine region for packet (apply later in allowPacketForward())
   if (pkt->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD) {
     recv_pkt_region = region_map.findMatch(pkt, REGION_DENY_FLOOD);
@@ -861,6 +946,8 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   next_local_advert = next_flood_advert = 0;
   dirty_contacts_expiry = 0;
   set_radio_at = revert_radio_at = 0;
+  last_flood_advert_recv = 0;
+  memset(_advert_jail, 0, sizeof(_advert_jail));
   _logging = false;
   region_load_active = false;
 
@@ -887,6 +974,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_advert_interval = 12; // 12 hours
   _prefs.flood_max = 64;
   _prefs.interference_threshold = 0; // disabled
+  _prefs.advert_jail = 12; // 12 hours
 
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled
@@ -1112,6 +1200,63 @@ void MyMesh::removeNeighbor(const uint8_t *pubkey, int key_len) {
     }
   }
 #endif
+}
+
+void MyMesh::formatAdvertJailReply(char *reply) {
+  char *dp = reply;
+  unsigned long now = millis();
+  int count = 0;
+
+  // Build sorted index: highest count first, then most recent last_seen
+  int sorted[MAX_ADVERT_JAIL_ENTRIES];
+  int n = 0;
+  for (int i = 0; i < MAX_ADVERT_JAIL_ENTRIES; i++) {
+    if (_advert_jail[i].last_seen != 0) sorted[n++] = i;
+  }
+  // Simple insertion sort (small n, no alloc)
+  for (int i = 1; i < n; i++) {
+    int key = sorted[i];
+    int j = i - 1;
+    while (j >= 0) {
+      bool swap = _advert_jail[sorted[j]].count < _advert_jail[key].count
+        || (_advert_jail[sorted[j]].count == _advert_jail[key].count
+            && (now - _advert_jail[sorted[j]].last_seen) > (now - _advert_jail[key].last_seen));
+      if (!swap) break;
+      sorted[j + 1] = sorted[j];
+      j--;
+    }
+    sorted[j + 1] = key;
+  }
+
+  for (int si = 0; si < n && dp - reply < 134; si++) {
+    AdvertJailEntry& entry = _advert_jail[sorted[si]];
+
+    if (count > 0) *dp++ = '\n';
+
+    char hex[10];
+    mesh::Utils::toHex(hex, entry.pub_key_prefix, ADVERT_JAIL_KEY_SIZE);
+
+    // Calculate average interval in hours
+    if (entry.total_adverts > 1) {
+      unsigned long span = now - entry.first_seen;
+      unsigned long avg_secs = (span / (entry.total_adverts - 1)) / 1000;
+      unsigned long avg_h = avg_secs / 3600;
+      unsigned long avg_m = (avg_secs % 3600) / 60;
+      sprintf(dp, "%s:%d/%d,avg=%luh%02lum%s", hex, entry.count, ADVERT_JAIL_THRESHOLD,
+        avg_h, avg_m, entry.jailed ? " JAILED" : "");
+    } else {
+      sprintf(dp, "%s:%d/%d%s", hex, entry.count, ADVERT_JAIL_THRESHOLD,
+        entry.jailed ? " JAILED" : "");
+    }
+    while (*dp) dp++;
+    count++;
+  }
+
+  if (count == 0) {
+    strcpy(dp, "-none-");
+    dp += 6;
+  }
+  *dp = 0;
 }
 
 void MyMesh::startRegionsLoad() {
