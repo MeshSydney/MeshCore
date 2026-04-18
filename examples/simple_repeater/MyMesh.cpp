@@ -754,8 +754,8 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
       entry.last_advert_time = advert_time;
       if (entry.total_adverts < UINT16_MAX) entry.total_adverts++;
 
-      // Arrived too soon? Increment count (cap at 255 to prevent wrap)
-      if (!interval_ok && entry.count < 255) {
+      // Arrived too soon? Increment count (cap at threshold to prevent unbounded growth)
+      if (!interval_ok && entry.count < ADVERT_JAIL_THRESHOLD) {
         entry.count++;
       }
 
