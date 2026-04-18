@@ -752,10 +752,10 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
 
       entry.last_seen = now;
       entry.last_advert_time = advert_time;
-      entry.total_adverts++;
+      if (entry.total_adverts < UINT16_MAX) entry.total_adverts++;
 
-      // Arrived too soon? Increment count
-      if (!interval_ok) {
+      // Arrived too soon? Increment count (cap at 255 to prevent wrap)
+      if (!interval_ok && entry.count < 255) {
         entry.count++;
       }
 
@@ -1029,7 +1029,40 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
       if (is_retry) {
         *reply = 0;
       } else {
-        handleCommand(sender_timestamp, command, reply);
+        reply[0] = 0;
+        int reply_remaining = 160;
+        char *reply_ptr = reply;
+        static char cmd_buf[160];
+        strncpy(cmd_buf, command, sizeof(cmd_buf) - 1);
+        cmd_buf[sizeof(cmd_buf) - 1] = 0;
+        char *cmd_tok = cmd_buf;
+        char *comma;
+        bool first = true;
+        while (cmd_tok && reply_remaining > 1) {
+          comma = strchr(cmd_tok, ',');
+          if (comma) *comma = 0;
+          // trim leading spaces
+          while (*cmd_tok == ' ') cmd_tok++;
+          if (*cmd_tok) {
+            static char single_reply[160];
+            single_reply[0] = 0;
+            handleCommand(sender_timestamp, cmd_tok, single_reply);
+            int slen = strlen(single_reply);
+            if (slen > 0) {
+              if (!first && reply_remaining > 1) {
+                *reply_ptr++ = ',';
+                reply_remaining--;
+              }
+              int copy_len = (slen < reply_remaining) ? slen : reply_remaining;
+              memcpy(reply_ptr, single_reply, copy_len);
+              reply_ptr += copy_len;
+              reply_remaining -= copy_len;
+              first = false;
+            }
+          }
+          cmd_tok = comma ? comma + 1 : NULL;
+        }
+        *reply_ptr = 0;
       }
       int text_len = strlen(reply);
       if (text_len > 0) {
@@ -1470,11 +1503,11 @@ void MyMesh::formatAdvertJailReply(char *reply) {
   unsigned long now = millis();
   int count = 0;
 
-  // Build sorted index: highest count first, then most recent last_seen
+  // Build sorted index: only jailed entries, highest count first, then most recent last_seen
   int sorted[MAX_ADVERT_JAIL_ENTRIES];
   int n = 0;
-  for (int i = 0; i < MAX_ADVERT_JAIL_ENTRIES; i++) {
-    if (_advert_jail[i].last_seen != 0) sorted[n++] = i;
+  for (int i = 0; i < MAX_ADVERT_JAIL_ENTRIES && n < MAX_ADVERT_JAIL_ENTRIES; i++) {
+    if (_advert_jail[i].last_seen != 0 && _advert_jail[i].jailed) sorted[n++] = i;
   }
   // Simple insertion sort (small n, no alloc)
   for (int i = 1; i < n; i++) {
@@ -1491,7 +1524,9 @@ void MyMesh::formatAdvertJailReply(char *reply) {
     sorted[j + 1] = key;
   }
 
-  for (int si = 0; si < n && dp - reply < 134; si++) {
+  const int REPLY_MAX = 159;  // max usable chars in reply buffer (160 - null)
+
+  for (int si = 0; si < n && (dp - reply) < REPLY_MAX - 30; si++) {
     AdvertJailEntry& entry = _advert_jail[sorted[si]];
 
     if (count > 0) *dp++ = '\n';
@@ -1499,18 +1534,19 @@ void MyMesh::formatAdvertJailReply(char *reply) {
     char hex[10];
     mesh::Utils::toHex(hex, entry.pub_key_prefix, ADVERT_JAIL_KEY_SIZE);
 
+    int remaining = REPLY_MAX - (int)(dp - reply);
     // Calculate average interval in hours
     if (entry.total_adverts > 1) {
       unsigned long span = now - entry.first_seen;
       unsigned long avg_secs = (span / (entry.total_adverts - 1)) / 1000;
       unsigned long avg_h = avg_secs / 3600;
       unsigned long avg_m = (avg_secs % 3600) / 60;
-      sprintf(dp, "%s:%d/%d,avg=%luh%02lum%s", hex, entry.count, ADVERT_JAIL_THRESHOLD,
-        avg_h, avg_m, entry.jailed ? " JAILED" : "");
+      snprintf(dp, remaining + 1, "%s:%d/%d,avg=%luh%02lum", hex, entry.count, ADVERT_JAIL_THRESHOLD,
+        avg_h, avg_m);
     } else {
-      sprintf(dp, "%s:%d/%d%s", hex, entry.count, ADVERT_JAIL_THRESHOLD,
-        entry.jailed ? " JAILED" : "");
+      snprintf(dp, remaining + 1, "%s:%d/%d", hex, entry.count, ADVERT_JAIL_THRESHOLD);
     }
+    dp[remaining] = 0;  // ensure null termination
     while (*dp) dp++;
     count++;
   }
