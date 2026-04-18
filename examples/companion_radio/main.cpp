@@ -30,8 +30,8 @@ static uint32_t _atoi(const char* sp) {
   #include <LittleFS.h>
   DataStore store(LittleFS, rtc_clock);
 #elif defined(ESP32)
-  #include <SPIFFS.h>
-  DataStore store(SPIFFS, rtc_clock);
+  #include <LittleFS.h>
+  DataStore store(LittleFS, rtc_clock);
 #endif
 
 #ifdef ESP32
@@ -183,7 +183,7 @@ void setup() {
   #endif
     the_mesh.startInterface(serial_interface);
 #elif defined(ESP32)
-  SPIFFS.begin(true);
+  LittleFS.begin(true);
   store.begin();
   the_mesh.begin(
     #ifdef DISPLAY_CLASS

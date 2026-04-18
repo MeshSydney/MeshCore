@@ -1095,24 +1095,24 @@ region save
 
 ## Command Chaining
 
-Multiple CLI commands can be sent in a single message by separating them with commas. Each command is executed sequentially and individual responses are concatenated with commas as delimiters.
+Multiple CLI commands can be sent in a single message by separating them with semicolons. Each command is executed sequentially and individual responses are concatenated with semicolon delimiters.
 
 **Syntax:**
 ```
-<command1>,<command2>,<command3>
+<command1>;<command2>;<command3>
 ```
 
 **Examples:**
 ```
-set name MyRepeater,set lat -33.86,set lon 151.21
+set name MyRepeater;set lat -33.86;set lon 151.21
 ```
-Returns: `name: MyRepeater,lat: -33.860001,lon: 151.210007`
+Returns: `name: MyRepeater;lat: -33.860001;lon: 151.210007`
 
 ```
-blacklist path add aa,blacklist chan add bb
+blacklist path add aa;blacklist chan add bb
 ```
-Returns: `+aa,+bb`
+Returns: `+aa;+bb`
 
 **Notes:**
-- Leading spaces after commas are stripped
+- Leading spaces after semicolons are stripped
 - Each sub-command's reply is limited to 160 characters

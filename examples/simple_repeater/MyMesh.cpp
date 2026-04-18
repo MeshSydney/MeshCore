@@ -1036,11 +1036,11 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
         strncpy(cmd_buf, command, sizeof(cmd_buf) - 1);
         cmd_buf[sizeof(cmd_buf) - 1] = 0;
         char *cmd_tok = cmd_buf;
-        char *comma;
+        char *sep;
         bool first = true;
         while (cmd_tok && reply_remaining > 1) {
-          comma = strchr(cmd_tok, ',');
-          if (comma) *comma = 0;
+          sep = strchr(cmd_tok, ';');
+          if (sep) *sep = 0;
           // trim leading spaces
           while (*cmd_tok == ' ') cmd_tok++;
           if (*cmd_tok) {
@@ -1050,7 +1050,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
             int slen = strlen(single_reply);
             if (slen > 0) {
               if (!first && reply_remaining > 1) {
-                *reply_ptr++ = ',';
+                *reply_ptr++ = ';';
                 reply_remaining--;
               }
               int copy_len = (slen < reply_remaining) ? slen : reply_remaining;
@@ -1060,7 +1060,7 @@ void MyMesh::onPeerDataRecv(mesh::Packet *packet, uint8_t type, int sender_idx, 
               first = false;
             }
           }
-          cmd_tok = comma ? comma + 1 : NULL;
+          cmd_tok = sep ? sep + 1 : NULL;
         }
         *reply_ptr = 0;
       }

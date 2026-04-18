@@ -64,7 +64,7 @@ void DataStore::begin() {
 }
 
 #if defined(ESP32)
-  #include <SPIFFS.h>
+  #include <LittleFS.h>
   #include <nvs_flash.h>
 #elif defined(RP2040_PLATFORM)
   #include <LittleFS.h>
@@ -102,7 +102,7 @@ lfs_ssize_t _getLfsUsedBlockCount(FILESYSTEM* fs) {
 
 uint32_t DataStore::getStorageUsedKb() const {
 #if defined(ESP32)
-  return SPIFFS.usedBytes() / 1024;
+  return LittleFS.usedBytes() / 1024;
 #elif defined(RP2040_PLATFORM)
   FSInfo info;
   info.usedBytes = 0;
@@ -120,7 +120,7 @@ uint32_t DataStore::getStorageUsedKb() const {
 
 uint32_t DataStore::getStorageTotalKb() const {
 #if defined(ESP32)
-  return SPIFFS.totalBytes() / 1024;
+  return LittleFS.totalBytes() / 1024;
 #elif defined(RP2040_PLATFORM)
   FSInfo info;
   info.totalBytes = 0;
@@ -173,7 +173,7 @@ bool DataStore::formatFileSystem() {
 #elif defined(RP2040_PLATFORM)
   return LittleFS.format();
 #elif defined(ESP32)
-  bool fs_success = ((fs::SPIFFSFS *)_fs)->format();
+  bool fs_success = ((fs::LittleFSFS *)_fs)->format();
   esp_err_t nvs_err = nvs_flash_erase(); // no need to reinit, will be done by reboot
   return fs_success && (nvs_err == ESP_OK);
 #else

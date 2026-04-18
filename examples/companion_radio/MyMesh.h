@@ -20,7 +20,7 @@
 #elif defined(RP2040_PLATFORM)
 #include <LittleFS.h>
 #elif defined(ESP32)
-#include <SPIFFS.h>
+#include <LittleFS.h>
 #endif
 
 #include "DataStore.h"

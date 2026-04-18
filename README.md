@@ -64,7 +64,7 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 - Up to **16 entries per list**, 1–4 byte hex prefixes (matching all LoRa hash sizes)
 - Persistent storage on filesystem; loaded on boot, saved on every change
 - **CLI commands**: `blacklist path|chan list|add|rem|clear [hex[,hex,...]]`
-- **Command chaining**: multiple CLI commands can be sent in a single message separated by commas — each command is executed sequentially and responses are concatenated with comma delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining))
+- **Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining))
 - CLI reply delay reduced: 600 ms → **300 ms**
 - Retry responses now send `"(retry)"` instead of silent empty string
 - Replay-attack path now sends an explicit `"(ERR: timestamp)"` error back to the client
