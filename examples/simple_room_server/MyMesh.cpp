@@ -3,6 +3,7 @@
 #define REPLY_DELAY_MILLIS          1500
 #define PUSH_NOTIFY_DELAY_MILLIS    2000
 #define SYNC_PUSH_INTERVAL          1200
+#define IDLE_PUSH_INTERVAL          10000  // Longer interval when no pending work (10 sec)
 
 #define PUSH_ACK_TIMEOUT_FLOOD      12000
 #define PUSH_TIMEOUT_BASE           4000
@@ -1016,10 +1017,13 @@ void MyMesh::loop() {
     next_client_idx = (next_client_idx + 1) % acl.getNumClients(); // round robin polling for each client
 
     if (did_push) {
-      next_push = futureMillis(SYNC_PUSH_INTERVAL);
+      next_push = futureMillis(SYNC_PUSH_INTERVAL);  // Active: fast polling
+    } else if (next_client_idx == 0) {
+      // Completed full round-robin with no pushes - go to idle mode
+      next_push = futureMillis(IDLE_PUSH_INTERVAL);
     } else {
-      // were no unsynced posts for curr client, so proccess next client much quicker! (in next loop())
-      next_push = futureMillis(SYNC_PUSH_INTERVAL / 8);
+      // Still scanning clients, use moderate interval
+      next_push = futureMillis(SYNC_PUSH_INTERVAL / 4);
     }
   }
 
