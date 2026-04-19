@@ -90,7 +90,10 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->rx_boosted_gain, sizeof(_prefs->rx_boosted_gain));              // 290
     file.read((uint8_t *)&_prefs->advert_ratelimit, sizeof(_prefs->advert_ratelimit));              // 291
     file.read((uint8_t *)&_prefs->advert_jail, sizeof(_prefs->advert_jail));                        // 293
-    // next: 294
+    file.read((uint8_t *)&_prefs->flood_req_max, sizeof(_prefs->flood_req_max));                    // 294
+    file.read((uint8_t *)&_prefs->flood_path_max, sizeof(_prefs->flood_path_max));                  // 295
+    file.read((uint8_t *)&_prefs->flood_req_interval, sizeof(_prefs->flood_req_interval));          // 296
+    // next: 297
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -122,6 +125,9 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     _prefs->rx_boosted_gain = constrain(_prefs->rx_boosted_gain, 0, 1); // boolean
     _prefs->advert_ratelimit = constrain(_prefs->advert_ratelimit, 0, 3600);
     _prefs->advert_jail = constrain(_prefs->advert_jail, 0, 168);
+    _prefs->flood_req_max = constrain(_prefs->flood_req_max, 0, 255);
+    _prefs->flood_path_max = constrain(_prefs->flood_path_max, 0, 255);
+    _prefs->flood_req_interval = constrain(_prefs->flood_req_interval, 1, 255);
 
     file.close();
   }
@@ -185,7 +191,10 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->rx_boosted_gain, sizeof(_prefs->rx_boosted_gain));              // 290
     file.write((uint8_t *)&_prefs->advert_ratelimit, sizeof(_prefs->advert_ratelimit));              // 291
     file.write((uint8_t *)&_prefs->advert_jail, sizeof(_prefs->advert_jail));                        // 293
-    // next: 294
+    file.write((uint8_t *)&_prefs->flood_req_max, sizeof(_prefs->flood_req_max));                    // 294
+    file.write((uint8_t *)&_prefs->flood_path_max, sizeof(_prefs->flood_path_max));                  // 295
+    file.write((uint8_t *)&_prefs->flood_req_interval, sizeof(_prefs->flood_req_interval));          // 296
+    // next: 297
 
     file.close();
   }
@@ -542,6 +551,33 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
       savePrefs();
       strcpy(reply, "OK");
     }
+  } else if (memcmp(config, "flood.req.max ", 14) == 0) {
+    int val = _atoi(&config[14]);
+    if (val < 0 || val > 255) {
+      strcpy(reply, "Error: range is 0-255 (0=off, default=6)");
+    } else {
+      _prefs->flood_req_max = (uint8_t)val;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+  } else if (memcmp(config, "flood.path.max ", 15) == 0) {
+    int val = _atoi(&config[15]);
+    if (val < 0 || val > 255) {
+      strcpy(reply, "Error: range is 0-255 (0=off, default=12)");
+    } else {
+      _prefs->flood_path_max = (uint8_t)val;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
+  } else if (memcmp(config, "flood.req.interval ", 19) == 0) {
+    int val = _atoi(&config[19]);
+    if (val < 1 || val > 255) {
+      strcpy(reply, "Error: range is 1-255 minutes (default=60)");
+    } else {
+      _prefs->flood_req_interval = (uint8_t)val;
+      savePrefs();
+      strcpy(reply, "OK");
+    }
   } else if (memcmp(config, "guest.password ", 15) == 0) {
     StrHelper::strncpy(_prefs->guest_password, &config[15], sizeof(_prefs->guest_password));
     savePrefs();
@@ -781,6 +817,12 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
     sprintf(reply, "> %d", (uint32_t) _prefs->advert_ratelimit);
   } else if (memcmp(config, "advert.jail", 11) == 0) {
     sprintf(reply, "> %d", (uint32_t) _prefs->advert_jail);
+  } else if (memcmp(config, "flood.req.max", 13) == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs->flood_req_max);
+  } else if (memcmp(config, "flood.path.max", 14) == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs->flood_path_max);
+  } else if (memcmp(config, "flood.req.interval", 18) == 0) {
+    sprintf(reply, "> %d", (uint32_t) _prefs->flood_req_interval);
   } else if (memcmp(config, "guest.password", 14) == 0) {
     sprintf(reply, "> %s", _prefs->guest_password);
   } else if (sender_timestamp == 0 && memcmp(config, "prv.key", 7) == 0) {  // from serial command line only

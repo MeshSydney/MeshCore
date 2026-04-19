@@ -77,6 +77,25 @@ struct BlacklistEntry {
   uint8_t prefix[MAX_PATH_PREFIX_LEN];
 };
 
+#define MAX_CHAN_NAME_FILTERS  8
+
+struct ChanNameFilter {
+  uint8_t hash[PATH_HASH_SIZE];       // derived channel hash for quick match
+  uint8_t secret[CIPHER_KEY_SIZE];    // derived channel secret for decrypt verification
+  char name[32];                      // channel name (e.g. "#test")
+};
+
+#define MAX_FLOOD_REQ_ENTRIES 64
+#define DEFAULT_FLOOD_REQ_MAX 6
+#define DEFAULT_FLOOD_PATH_MAX 12
+#define DEFAULT_FLOOD_REQ_INTERVAL 60  // minutes
+
+struct FloodReqEntry {
+  uint8_t key[2];                     // dest_hash + src_hash
+  uint8_t count;                      // current counter
+  unsigned long last_decrement;       // millis() when last decremented
+};
+
 #define ADVERT_JAIL_KEY_SIZE    4
 #define MAX_ADVERT_JAIL_ENTRIES 128
 #define ADVERT_JAIL_THRESHOLD   6
@@ -128,6 +147,9 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long dirty_contacts_expiry;
   BlacklistEntry _path_blacklist[MAX_BLACKLIST_ENTRIES]; // path-prefix (pubkey prefix) blacklist
   BlacklistEntry _chan_blacklist[MAX_BLACKLIST_ENTRIES];  // channel hash blacklist
+  ChanNameFilter _chan_name_filters[MAX_CHAN_NAME_FILTERS]; // #channel_name blacklist entries
+  int _num_chan_name_filters;
+  FloodReqEntry _flood_req_table[MAX_FLOOD_REQ_ENTRIES];   // flood request rate limit table
 #if MAX_NEIGHBOURS
   NeighbourInfo neighbours[MAX_NEIGHBOURS];
 #endif
@@ -166,6 +188,18 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   bool addToBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
   bool removeFromBlacklist(BlacklistEntry* list, const uint8_t* prefix, uint8_t len);
   void formatBlacklist(const BlacklistEntry* list, char* reply);
+
+  // Channel name filter helpers (#channel_name blacklist)
+  void deriveChanNameFilter(ChanNameFilter& entry, const char* name);
+  bool addChanNameFilter(const char* name);
+  bool removeChanNameFilter(const char* name);
+  void loadChanBlacklist(const char* fname);
+  void saveChanBlacklist(const char* fname);
+  void formatChanBlacklist(char* reply);
+
+  // Flood request rate limiting helpers
+  bool isFloodReqBlocked(const mesh::Packet* packet);
+  void floodReqDecrement();
 
 protected:
   float getAirtimeBudgetFactor() const override {

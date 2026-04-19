@@ -4,6 +4,42 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 
 ---
 
+## CLI Command Reference
+
+All `set`/`get` commands below are available on all node types (repeater, companion, room server, sensor). Blacklist commands are repeater-only.
+
+### Flood & Abuse Prevention Settings
+
+| Command | Range | Default | Description |
+|---|---|---|---|
+| `set flood.req.max <val>` | 0–255 | **6** | Max flood requests per sender pair before blocking. 0 = off. Counter decrements by 1 each interval (see below), so a node can send 6 in the first interval and 1 per interval after |
+| `get flood.req.max` | — | — | Show current value |
+| `set flood.req.interval <min>` | 1–255 | **60** | Minutes between flood request counter decrements |
+| `get flood.req.interval` | — | — | Show current value |
+| `set flood.path.max <val>` | 0–255 | **12** | Max path hops for flood REQ/RESPONSE/PATH packets. Packets with more hops are dropped. 0 = off |
+| `get flood.path.max` | — | — | Show current value |
+| `set advert.ratelimit <sec>` | 0–3600 | **0** (off) | Minimum seconds between accepting flood adverts |
+| `get advert.ratelimit` | — | — | Show current value |
+| `set advert.jail <hrs>` | 0–168 | **12** | Hours to jail a sender that exceeds the advert rate limit. 0 = off |
+| `get advert.jail` | — | — | Show current value |
+
+### Blacklist Commands (Repeater Only)
+
+| Command | Description |
+|---|---|
+| `blacklist path list` | List all path blacklist entries |
+| `blacklist path add <hex>[,<hex>,...]` | Add pubkey-hash prefix(es) to path blacklist (1–4 byte hex, max 16 entries) |
+| `blacklist path rem <hex>[,<hex>,...]` | Remove path blacklist entry(ies) |
+| `blacklist path clear` | Clear all path blacklist entries |
+| `blacklist chan list` | List all channel blacklist entries (hex prefixes and `#name` filters) |
+| `blacklist chan add <hex\|#name>[,...]` | Add channel hash prefix(es) or `#channel_name` filter(s) (max 16 hex + 8 name entries) |
+| `blacklist chan rem <hex\|#name>[,...]` | Remove channel blacklist entry(ies) |
+| `blacklist chan clear` | Clear all channel blacklist entries |
+
+**Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters.
+
+---
+
 ## 1. Radio / LoRa Configuration (`platformio.ini`)
 - **Frequency changed** from 869.618 MHz (EU) → **916.575 MHz** (AU/US region)
 - **Spreading factor changed** from SF8 → **SF7**
@@ -57,13 +93,34 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 
 ---
 
-## 8. Repeater — Node/Channel Blacklisting + Sydney Mesh Defaults (`examples/simple_repeater/`)
+## 8. Repeater — Blacklisting, Flood Filtering + Sydney Mesh Defaults (`examples/simple_repeater/`)
+
+### Node/Channel Blacklisting
 - **New blacklist system** with two independent lists:
   - **Path blacklist** (`/path_bl`): drops flood packets whose path contains a matching pubkey-hash prefix
-  - **Channel blacklist** (`/chan_bl`): drops group-channel packets whose channel hash matches
-- Up to **16 entries per list**, 1–4 byte hex prefixes (matching all LoRa hash sizes)
+  - **Channel blacklist** (`/chan_bl`): drops group-channel packets whose channel hash matches (hex prefix) or whose channel name matches (`#name` filter with decrypt verification)
+- Up to **16 hex prefix entries per list** + up to **8 channel name filters** for channel blacklist
+- **Channel name filter** (`#channel_name`): when a `#name` entry is added, the repeater derives the channel secret from `sha256(name)` and verifies matches by test-decrypting the packet — this prevents false positives from hash collisions
 - Persistent storage on filesystem; loaded on boot, saved on every change
-- **CLI commands**: `blacklist path|chan list|add|rem|clear [hex[,hex,...]]`
+- **CLI commands**: `blacklist path|chan list|add|rem|clear [hex|#name[,...]]`
+
+### Flood Request Rate Limiting
+- **Per-sender rate limiting** for flood-routed REQ, TXT_MSG, RESPONSE, and PATH packets
+- Tracks up to **64 sender pairs** (identified by the 2-byte dest_hash + src_hash prefix)
+- Default: **6 requests** allowed before blocking (`set flood.req.max`), counter decrements by 1 every **60 minutes** (`set flood.req.interval`) — so a node can send 6 in the first interval and 1 per interval after, or 4 in the first interval and 3 the next
+- Setting `flood.req.max` to 0 disables rate limiting
+- Oldest entries are evicted when the table is full
+
+### Flood Path Length Limiting
+- Flood-routed REQ, RESPONSE, and PATH packets are dropped if the number of hops exceeds a configurable limit
+- Default: **12 hops** (`set flood.path.max`), 0 = off
+
+### Advert Jail
+- Per-sender flood advert jail with **timestamp deduplication** — same advert arriving via different paths is not counted against the rate limit
+- Advert count capped at threshold to prevent unbounded growth
+- Jailed entries filtered from CLI replies
+
+### Other Repeater Changes
 - **Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining))
 - CLI reply delay reduced: 600 ms → **300 ms**
 - Retry responses now send `"(retry)"` instead of silent empty string

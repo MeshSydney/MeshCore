@@ -63,6 +63,9 @@ struct NodePrefs { // persisted to file
   uint8_t loop_detect;
   uint16_t advert_ratelimit; // seconds, 0 = off. Rate limit for incoming flood adverts
   uint8_t advert_jail;        // hours, 0 = off. Per-sender flood advert jail interval
+  uint8_t flood_req_max;      // max flood requests before blocking, 0 = off. Default 6.
+  uint8_t flood_path_max;     // max path hops for flood REQ/RESPONSE/PATH, 0 = off. Default 12.
+  uint8_t flood_req_interval; // minutes between flood request decrements. Default 60.
 };
 
 class CommonCLICallbacks {
