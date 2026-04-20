@@ -81,7 +81,7 @@ struct BlacklistEntry {
 
 struct ChanNameFilter {
   uint8_t hash[PATH_HASH_SIZE];       // derived channel hash for quick match
-  uint8_t secret[CIPHER_KEY_SIZE];    // derived channel secret for decrypt verification
+  uint8_t secret[PUB_KEY_SIZE];       // derived channel secret for decrypt verification (MACThenDecrypt reads PUB_KEY_SIZE bytes)
   char name[32];                      // channel name (e.g. "#test")
 };
 
