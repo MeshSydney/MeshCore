@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "DataStore.h"
 
-#if defined(EXTRAFS) || defined(QSPIFLASH)
+#if defined(EXTRAFS) || defined(QSPIFLASH) || defined(ESP32)
   #define MAX_BLOBRECS 100
 #else
   #define MAX_BLOBRECS 20
@@ -42,6 +42,16 @@ static File openWrite(FILESYSTEM* fs, const char* filename) {
 #endif
 }
 
+static File openReadWrite(FILESYSTEM* fs, const char* filename) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  return fs->open(filename, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  return fs->open(filename, "r+");
+#else
+  return fs->open(filename, "r+", false);
+#endif
+}
+
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   static uint32_t _ContactsChannelsTotalBlocks = 0;
 #endif
@@ -53,14 +63,28 @@ void DataStore::begin() {
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   _ContactsChannelsTotalBlocks = _getContactsChannelsFS()->_getFS()->cfg->block_count;
-  checkAdvBlobFile();
   #if defined(EXTRAFS) || defined(QSPIFLASH)
   migrateToSecondaryFS();
   #endif
-#else
-  // init 'blob store' support
-  _fs->mkdir("/bl");
 #endif
+  checkAdvBlobFile();
+
+  // clean up old per-file blob store if present
+  if (_fs->exists("/bl")) {
+    File dir = _fs->open("/bl");
+    if (dir && dir.isDirectory()) {
+      File f = dir.openNextFile();
+      while (f) {
+        char path[80];
+        snprintf(path, sizeof(path), "/bl/%s", f.name());
+        f.close();
+        _fs->remove(path);
+        f = dir.openNextFile();
+      }
+      dir.close();
+    }
+    _fs->rmdir("/bl");
+  }
 }
 
 #if defined(ESP32)
@@ -383,8 +407,6 @@ void DataStore::saveChannels(DataStoreHost* host) {
   }
 }
 
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-
 #define MAX_ADVERT_PKT_LEN   (2 + 32 + PUB_KEY_SIZE + 4 + SIGNATURE_SIZE + MAX_ADVERT_DATA_SIZE)
 
 struct BlobRec {
@@ -536,7 +558,7 @@ uint8_t DataStore::getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_b
 bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], uint8_t len) {
   if (len < PUB_KEY_SIZE+4+SIGNATURE_SIZE || len > MAX_ADVERT_PKT_LEN) return false;
   checkAdvBlobFile();
-  File file = _getContactsChannelsFS()->open("/adv_blobs", FILE_O_WRITE);
+  File file = openReadWrite(_getContactsChannelsFS(), "/adv_blobs");
   if (file) {
     uint32_t pos = 0, found_pos = 0;
     uint32_t min_timestamp = 0xFFFFFFFF;
@@ -571,52 +593,5 @@ bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src
   return false; // error
 }
 bool DataStore::deleteBlobByKey(const uint8_t key[], int key_len) {
-  return true; // this is just a stub on NRF52/STM32 platforms
+  return true;
 }
-#else
-inline void makeBlobPath(const uint8_t key[], int key_len, char* path, size_t path_size) {
-  char fname[18];
-  if (key_len > 8) key_len = 8; // just use first 8 bytes (prefix)
-  mesh::Utils::toHex(fname, key, key_len);
-  sprintf(path, "/bl/%s", fname);
-}
-
-uint8_t DataStore::getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) {
-  char path[64];
-  makeBlobPath(key, key_len, path, sizeof(path));
-
-  if (_fs->exists(path)) {
-    File f = openRead(_fs, path);
-    if (f) {
-      int len = f.read(dest_buf, 255); // currently MAX 255 byte blob len supported!!
-      f.close();
-      return len;
-    }
-  }
-  return 0; // not found
-}
-
-bool DataStore::putBlobByKey(const uint8_t key[], int key_len, const uint8_t src_buf[], uint8_t len) {
-  char path[64];
-  makeBlobPath(key, key_len, path, sizeof(path));
-
-  File f = openWrite(_fs, path);
-  if (f) {
-    int n = f.write(src_buf, len);
-    f.close();
-    if (n == len) return true; // success!
-
-    _fs->remove(path); // blob was only partially written!
-  }
-  return false; // error
-}
-
-bool DataStore::deleteBlobByKey(const uint8_t key[], int key_len) {
-  char path[64];
-  makeBlobPath(key, key_len, path, sizeof(path));
-
-  _fs->remove(path);
-  
-  return true; // return true even if file did not exist
-}
-#endif
