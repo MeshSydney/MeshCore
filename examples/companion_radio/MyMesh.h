@@ -8,11 +8,11 @@
 #define FIRMWARE_VER_CODE 11
 
 #ifndef FIRMWARE_BUILD_DATE
-#define FIRMWARE_BUILD_DATE "17 Apr 2026"
+#define FIRMWARE_BUILD_DATE "19 Apr 2026"
 #endif
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "v1.14.1"
+#define FIRMWARE_VERSION "v1.15.0"
 #endif
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -20,7 +20,7 @@
 #elif defined(RP2040_PLATFORM)
 #include <LittleFS.h>
 #elif defined(ESP32)
-#include <LittleFS.h>
+#include <SPIFFS.h>
 #endif
 
 #include "DataStore.h"
@@ -53,10 +53,6 @@
 #endif
 #ifndef MAX_LORA_TX_POWER
 #define MAX_LORA_TX_POWER LORA_TX_POWER
-#endif
-
-#ifndef AGC_RESET_INTERVAL
-#define AGC_RESET_INTERVAL 500   // default 500 seconds
 #endif
 
 #ifndef MAX_CONTACTS
@@ -109,7 +105,6 @@ public:
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
-  int getAGCResetInterval() const override { return AGC_RESET_INTERVAL * 1000; }  // milliseconds
   int calcRxDelay(float score, uint32_t air_time) const override;
   uint32_t getRetransmitDelay(const mesh::Packet *packet) override;
   uint32_t getDirectRetransmitDelay(const mesh::Packet *packet) override;
@@ -171,15 +166,6 @@ protected:
 public:
   void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
 
-#ifdef MORSE_COMPOSE_ENABLED
-  // Queue a locally-originated channel message for BLE companion app sync.
-  // Called from UITask after MorseScreen sends via sendGroupMessage().
-  void queueSentChannelMessage(uint8_t channel_idx, uint32_t timestamp, const char* text);
-#endif
-
-  // To check if there is pending work (for power saving)
-  bool hasPendingWork() const;
-
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
     sensors.setSettingValue("gps", _prefs.gps_enabled ? "1" : "0");
@@ -209,7 +195,6 @@ private:
   void checkCLIRescueCmd();
   void checkSerialInterface();
   bool isValidClientRepeatFreq(uint32_t f) const;
-  void initOfflineQueue();
 
   // helpers, short-cuts
   void saveChannels() { _store->saveChannels(this); }
@@ -249,8 +234,7 @@ private:
     bool isChannelMsg() const;
   };
   int offline_queue_len;
-  int offline_queue_max;
-  Frame* offline_queue;
+  Frame offline_queue[OFFLINE_QUEUE_SIZE];
 
   struct AckTableEntry {
     unsigned long msg_sent;
