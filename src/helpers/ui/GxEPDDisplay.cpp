@@ -169,10 +169,15 @@ uint16_t GxEPDDisplay::getTextWidth(const char* str) {
   return ceil((w + 1) / scale_x);
 }
 
+void GxEPDDisplay::setNextFrameFullRefresh() {
+  _full_refresh_pending = true;
+}
+
 void GxEPDDisplay::endFrame() {
   uint32_t crc = display_crc.finalize();
-  if (crc != last_display_crc_value) {
-    display.display(true);
+  if (crc != last_display_crc_value || _full_refresh_pending) {
+    display.display(_full_refresh_pending ? false : true);  // full refresh when flagged, partial otherwise
+    _full_refresh_pending = false;
     last_display_crc_value = crc;
   }
 }

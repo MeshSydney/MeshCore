@@ -164,6 +164,12 @@ protected:
   }
 
 public:
+  bool hasPendingWork() const;
+
+#ifdef MORSE_COMPOSE_ENABLED
+  void queueSentChannelMessage(uint8_t channel_idx, uint32_t timestamp, const char* text);
+#endif
+
   void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
 
 #if ENV_INCLUDE_GPS == 1
@@ -183,6 +189,7 @@ private:
   void writeDisabledFrame();
   void writeContactRespFrame(uint8_t code, const ContactInfo &contact);
   void updateContactFromFrame(ContactInfo &contact, uint32_t& last_mod, const uint8_t *frame, int len);
+  void initOfflineQueue();
   void addToOfflineQueue(const uint8_t frame[], int len);
   int getFromOfflineQueue(uint8_t frame[]);
   int getBlobByKey(const uint8_t key[], int key_len, uint8_t dest_buf[]) override { 
@@ -234,7 +241,8 @@ private:
     bool isChannelMsg() const;
   };
   int offline_queue_len;
-  Frame offline_queue[OFFLINE_QUEUE_SIZE];
+  int offline_queue_max;
+  Frame* offline_queue;
 
   struct AckTableEntry {
     unsigned long msg_sent;

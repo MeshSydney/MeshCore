@@ -103,6 +103,7 @@ class HomeScreen : public UIScreen {
   uint8_t _page;
   bool _shutdown_init;
   bool _display_blanked;
+  bool _just_blanked;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
 
@@ -199,7 +200,7 @@ class HomeScreen : public UIScreen {
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
      : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
-       _shutdown_init(false), _display_blanked(false), sensors_lpp(200) {  }
+       _shutdown_init(false), _display_blanked(false), _just_blanked(false), sensors_lpp(200) {  }
 
   void poll() override {
     if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
@@ -209,20 +210,24 @@ public:
 
   int render(DisplayDriver& display) override {
     if (_display_blanked) {
+      if (_just_blanked) {
+        _just_blanked = false;
+        display.setNextFrameFullRefresh();  // full refresh to clear ghosting from previous screen
+      }
       // Show minimal battery status on the otherwise-blank screen
       int pct = calcBatteryPercentage(_task->getBattMilliVolts());
       char pct_str[6];
       snprintf(pct_str, sizeof(pct_str), "%d%%", pct);
 
       display.setColor(DisplayDriver::GREEN);
-      display.setTextSize(2);
-      display.drawTextCentered(display.width() / 2, 18, pct_str);
+      display.setTextSize(3);
+      display.drawTextCentered(display.width() / 2, 22, pct_str);
 
       // battery bar
       int barW = 80;
       int barH = 8;
       int barX = (display.width() - barW) / 2;
-      int barY = 28;
+      int barY = 38;
       display.drawRect(barX, barY, barW, barH);
       display.fillRect(barX + 1, barY + 1, (pct * (barW - 2)) / 100, barH - 2);
 
@@ -460,6 +465,7 @@ public:
     }
     if (c == KEY_ENTER && _page == HomePage::FIRST) {
       _display_blanked = true;
+      _just_blanked = true;
       return true;
     }
     if (c == KEY_LEFT || c == KEY_PREV) {
