@@ -102,22 +102,41 @@ class HomeScreen : public UIScreen {
   NodePrefs* _node_prefs;
   uint8_t _page;
   bool _shutdown_init;
+  bool _display_blanked;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
 
+  static int calcBatteryPercentage(uint16_t batteryMilliVolts) {
+#ifdef BATT_CURVE_LIPO_4V4
+    static const uint16_t curve_v[] = { 4400, 4250, 4100, 3950, 3850, 3770, 3700, 3650, 3600, 3550, 3500, 3400, 3000 };
+    static const uint8_t  curve_p[] = {  100,   90,   80,   70,   60,   50,   40,   30,   20,   15,   10,    5,    0 };
+    const int curve_len = (int)(sizeof(curve_v) / sizeof(curve_v[0]));
+    if (batteryMilliVolts >= curve_v[0]) return 100;
+    if (batteryMilliVolts <= curve_v[curve_len - 1]) return 0;
+    for (int i = 0; i < curve_len - 1; i++) {
+      if (batteryMilliVolts <= curve_v[i] && batteryMilliVolts > curve_v[i + 1]) {
+        return (int)curve_p[i + 1] +
+          (int)((batteryMilliVolts - curve_v[i + 1]) * (curve_p[i] - curve_p[i + 1])) /
+          (int)(curve_v[i] - curve_v[i + 1]);
+      }
+    }
+    return 0;
+#else
+  #ifndef BATT_MIN_MILLIVOLTS
+    #define BATT_MIN_MILLIVOLTS 3000
+  #endif
+  #ifndef BATT_MAX_MILLIVOLTS
+    #define BATT_MAX_MILLIVOLTS 4200
+  #endif
+    int pct = ((batteryMilliVolts - BATT_MIN_MILLIVOLTS) * 100) / (BATT_MAX_MILLIVOLTS - BATT_MIN_MILLIVOLTS);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return pct;
+#endif
+  }
+
   void renderBatteryIndicator(DisplayDriver& display, uint16_t batteryMilliVolts) {
-    // Convert millivolts to percentage
-#ifndef BATT_MIN_MILLIVOLTS
-  #define BATT_MIN_MILLIVOLTS 3000
-#endif
-#ifndef BATT_MAX_MILLIVOLTS
-  #define BATT_MAX_MILLIVOLTS 4200
-#endif
-    const int minMilliVolts = BATT_MIN_MILLIVOLTS;
-    const int maxMilliVolts = BATT_MAX_MILLIVOLTS;
-    int batteryPercentage = ((batteryMilliVolts - minMilliVolts) * 100) / (maxMilliVolts - minMilliVolts);
-    if (batteryPercentage < 0) batteryPercentage = 0; // Clamp to 0%
-    if (batteryPercentage > 100) batteryPercentage = 100; // Clamp to 100%
+    int batteryPercentage = calcBatteryPercentage(batteryMilliVolts);
 
     // battery icon
     int iconWidth = 24;
@@ -135,6 +154,11 @@ class HomeScreen : public UIScreen {
     // fill the battery based on the percentage
     int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
     display.fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
+
+    // percentage label to the left of the icon
+    char pct_str[5];
+    snprintf(pct_str, sizeof(pct_str), "%d%%", batteryPercentage);
+    display.drawTextRightAlign(iconX - 3, iconY, pct_str);
 
     // show muted icon if buzzer is muted
 #ifdef PIN_BUZZER
@@ -174,8 +198,8 @@ class HomeScreen : public UIScreen {
 
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
-     : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0), 
-       _shutdown_init(false), sensors_lpp(200) {  }
+     : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
+       _shutdown_init(false), _display_blanked(false), sensors_lpp(200) {  }
 
   void poll() override {
     if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
@@ -184,6 +208,26 @@ public:
   }
 
   int render(DisplayDriver& display) override {
+    if (_display_blanked) {
+      // Show minimal battery status on the otherwise-blank screen
+      int pct = calcBatteryPercentage(_task->getBattMilliVolts());
+      char pct_str[6];
+      snprintf(pct_str, sizeof(pct_str), "%d%%", pct);
+
+      display.setColor(DisplayDriver::GREEN);
+      display.setTextSize(2);
+      display.drawTextCentered(display.width() / 2, 18, pct_str);
+
+      // battery bar
+      int barW = 80;
+      int barH = 8;
+      int barX = (display.width() - barW) / 2;
+      int barY = 28;
+      display.drawRect(barX, barY, barW, barH);
+      display.fillRect(barX + 1, barY + 1, (pct * (barW - 2)) / 100, barH - 2);
+
+      return 60000;  // refresh rarely while blanked
+    }
     char tmp[80];
     // node name
     display.setTextSize(1);
@@ -410,6 +454,14 @@ public:
   }
 
   bool handleInput(char c) override {
+    if (_display_blanked) {
+      _display_blanked = false;  // any press un-blanks
+      return true;
+    }
+    if (c == KEY_ENTER && _page == HomePage::FIRST) {
+      _display_blanked = true;
+      return true;
+    }
     if (c == KEY_LEFT || c == KEY_PREV) {
       _page = (_page + HomePage::Count - 1) % HomePage::Count;
       return true;

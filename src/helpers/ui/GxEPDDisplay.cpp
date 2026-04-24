@@ -128,35 +128,34 @@ void GxEPDDisplay::drawXbm(int x, int y, const uint8_t* bits, int w, int h) {
   display_crc.update<int>(w);
   display_crc.update<int>(h);
   display_crc.update<uint8_t>(bits, w * h / 8);
-  // Calculate the base position in display coordinates
-  uint16_t startX = x * scale_x;
-  uint16_t startY = y * scale_y;
-  
+
+  // Use a uniform pixel scale so icons appear square regardless of display aspect ratio.
+  // Center the icon within the logical bounding box so existing centering formulas still work.
+  float icon_scale = (scale_x < scale_y) ? scale_x : scale_y;
+  uint16_t startX = (uint16_t)(x * scale_x + (w * scale_x - w * icon_scale) / 2.0f);
+  uint16_t startY = (uint16_t)(y * scale_y);
+
   // Width in bytes for bitmap processing
   uint16_t widthInBytes = (w + 7) / 8;
-  
+
   // Process the bitmap row by row
   for (uint16_t by = 0; by < h; by++) {
-    // Calculate the target y-coordinates for this logical row
-    int y1 = startY + (int)(by * scale_y);
-    int y2 = startY + (int)((by + 1) * scale_y);
+    int y1 = startY + (int)(by * icon_scale);
+    int y2 = startY + (int)((by + 1) * icon_scale);
     int block_h = y2 - y1;
-    
-    // Scan across the row bit by bit
+    if (block_h < 1) block_h = 1;
+
     for (uint16_t bx = 0; bx < w; bx++) {
-      // Calculate the target x-coordinates for this logical column
-      int x1 = startX + (int)(bx * scale_x);
-      int x2 = startX + (int)((bx + 1) * scale_x);
+      int x1 = startX + (int)(bx * icon_scale);
+      int x2 = startX + (int)((bx + 1) * icon_scale);
       int block_w = x2 - x1;
-      
-      // Get the current bit
+      if (block_w < 1) block_w = 1;
+
       uint16_t byteOffset = (by * widthInBytes) + (bx / 8);
       uint8_t bitMask = 0x80 >> (bx & 7);
       bool bitSet = pgm_read_byte(bits + byteOffset) & bitMask;
-      
-      // If the bit is set, draw a block of pixels
+
       if (bitSet) {
-        // Draw the block as a filled rectangle
         display.fillRect(x1, y1, block_w, block_h, _curr_color);
       }
     }
