@@ -109,7 +109,7 @@ class HomeScreen : public UIScreen {
 
   static int calcBatteryPercentage(uint16_t batteryMilliVolts) {
 #ifdef BATT_CURVE_LIPO_4V4
-    static const uint16_t curve_v[] = { 4400, 4250, 4100, 3950, 3850, 3770, 3700, 3650, 3600, 3550, 3500, 3400, 3000 };
+    static const uint16_t curve_v[] = { 4350, 4250, 4100, 3950, 3850, 3770, 3700, 3650, 3600, 3550, 3500, 3400, 3000 };
     static const uint8_t  curve_p[] = {  100,   90,   80,   70,   60,   50,   40,   30,   20,   15,   10,    5,    0 };
     const int curve_len = (int)(sizeof(curve_v) / sizeof(curve_v[0]));
     if (batteryMilliVolts >= curve_v[0]) return 100;
