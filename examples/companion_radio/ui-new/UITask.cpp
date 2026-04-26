@@ -104,6 +104,7 @@ class HomeScreen : public UIScreen {
   bool _shutdown_init;
   bool _display_blanked;
   bool _just_blanked;
+  uint8_t _batt_render_count;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
 
@@ -216,7 +217,7 @@ class HomeScreen : public UIScreen {
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
      : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
-       _shutdown_init(false), _display_blanked(false), _just_blanked(false), sensors_lpp(200) {  }
+       _shutdown_init(false), _display_blanked(false), _just_blanked(false), _batt_render_count(0), sensors_lpp(200) {  }
 
   void poll() override {
     if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
@@ -228,7 +229,14 @@ public:
     if (_display_blanked) {
       if (_just_blanked) {
         _just_blanked = false;
+        _batt_render_count = 0;
         display.setNextFrameFullRefresh();  // full refresh to clear ghosting from previous screen
+      } else {
+        _batt_render_count++;
+        if (_batt_render_count >= 5) {  // full refresh every ~5 min to prevent ghosting
+          _batt_render_count = 0;
+          display.setNextFrameFullRefresh();
+        }
       }
       // Show minimal battery status on the otherwise-blank screen
       int pct = calcBatteryPercentage(_task->getBattMilliVolts());
@@ -477,6 +485,7 @@ public:
   bool handleInput(char c) override {
     if (_display_blanked) {
       _display_blanked = false;  // any press un-blanks
+      _batt_render_count = 0;
       return true;
     }
     if (c == KEY_ENTER && _page == HomePage::FIRST) {
