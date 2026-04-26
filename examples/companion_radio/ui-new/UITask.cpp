@@ -108,7 +108,23 @@ class HomeScreen : public UIScreen {
 
 
   static int calcBatteryPercentage(uint16_t batteryMilliVolts) {
-#ifdef BATT_CURVE_LIPO_4V4
+#if defined(BATT_CURVE_LIPO_4V2)
+    // Standard 4.2V LiPo open-circuit voltage curve
+    static const uint16_t curve_v[] = { 4180, 4060, 3980, 3880, 3800, 3740, 3680, 3620, 3570, 3530, 3480, 3360, 3000 };
+    static const uint8_t  curve_p[] = {  100,   90,   80,   70,   60,   50,   40,   30,   20,   15,   10,    5,    0 };
+    const int curve_len = (int)(sizeof(curve_v) / sizeof(curve_v[0]));
+    if (batteryMilliVolts >= curve_v[0]) return 100;
+    if (batteryMilliVolts <= curve_v[curve_len - 1]) return 0;
+    for (int i = 0; i < curve_len - 1; i++) {
+      if (batteryMilliVolts <= curve_v[i] && batteryMilliVolts > curve_v[i + 1]) {
+        return (int)curve_p[i + 1] +
+          (int)((batteryMilliVolts - curve_v[i + 1]) * (curve_p[i] - curve_p[i + 1])) /
+          (int)(curve_v[i] - curve_v[i + 1]);
+      }
+    }
+    return 0;
+#elif defined(BATT_CURVE_LIPO_4V4)
+    // High-energy 4.4V LiPo open-circuit voltage curve
     static const uint16_t curve_v[] = { 4350, 4250, 4100, 3950, 3850, 3770, 3700, 3650, 3600, 3550, 3500, 3400, 3000 };
     static const uint8_t  curve_p[] = {  100,   90,   80,   70,   60,   50,   40,   30,   20,   15,   10,    5,    0 };
     const int curve_len = (int)(sizeof(curve_v) / sizeof(curve_v[0]));
