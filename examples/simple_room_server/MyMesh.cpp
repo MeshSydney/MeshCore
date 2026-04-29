@@ -705,7 +705,6 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
 
 void MyMesh::begin(FILESYSTEM *fs) {
   mesh::Mesh::begin();
-  initContacts();
   _fs = fs;
   // load persisted prefs
   _cli.loadPrefs(_fs);
