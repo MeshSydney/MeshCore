@@ -61,13 +61,21 @@ public:
     int logoWidth = 128;
     display.drawXbm((display.width() - logoWidth) / 2, 3, meshcore_logo, logoWidth, 13);
 
+    // meshcore website
+    const char* website = "https://meshcore.io";
+    display.setColor(DisplayDriver::LIGHT);
+    display.setTextSize(1);
+    uint16_t websiteWidth = display.getTextWidth(website);
+    display.setCursor((display.width() - websiteWidth) / 2, 22);
+    display.print(website);
+
     // version info
     display.setColor(DisplayDriver::LIGHT);
-    display.setTextSize(2);
-    display.drawTextCentered(display.width()/2, 22, _version_info);
+    display.setTextSize(1);
+    display.drawTextCentered(display.width()/2, 35, _version_info);
 
     display.setTextSize(1);
-    display.drawTextCentered(display.width()/2, 42, FIRMWARE_BUILD_DATE);
+    display.drawTextCentered(display.width()/2, 48, FIRMWARE_BUILD_DATE);
 
     return 1000;
   }
