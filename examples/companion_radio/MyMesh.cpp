@@ -61,6 +61,7 @@
 #define CMD_SEND_CHANNEL_DATA         62
 #define CMD_SET_DEFAULT_FLOOD_SCOPE   63
 #define CMD_GET_DEFAULT_FLOOD_SCOPE   64
+#define CMD_SEND_RAW_PACKET           65
 
 // Stats sub-types for CMD_GET_STATS
 #define STATS_TYPE_CORE               0
@@ -507,19 +508,27 @@ void MyMesh::sendFloodScoped(const TransportKey& scope, mesh::Packet* pkt, uint3
 
 void MyMesh::sendFloodScoped(const ContactInfo& recipient, mesh::Packet* pkt, uint32_t delay_millis) {
   // TODO: dynamic send_scope, depending on recipient and current 'home' Region
-  TransportKey default_scope;
-  memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+  if (send_unscoped) {
+    sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
+  } else {
+    TransportKey default_scope;
+    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
 
-  auto scope = send_scope.isNull() ? &default_scope : &send_scope;
-  sendFloodScoped(*scope, pkt, delay_millis);
+    auto scope = send_scope.isNull() ? &default_scope : &send_scope;
+    sendFloodScoped(*scope, pkt, delay_millis);
+  }
 }
 void MyMesh::sendFloodScoped(const mesh::GroupChannel& channel, mesh::Packet* pkt, uint32_t delay_millis) {
   // TODO: have per-channel send_scope
-  TransportKey default_scope;
-  memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+  if (send_unscoped) {
+    sendFlood(pkt, delay_millis, _prefs.path_hash_mode + 1);  // app has explicitly requested un-scoped
+  } else {
+    TransportKey default_scope;
+    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
 
-  auto scope = send_scope.isNull() ? &default_scope : &send_scope;
-  sendFloodScoped(*scope, pkt, delay_millis);
+    auto scope = send_scope.isNull() ? &default_scope : &send_scope;
+    sendFloodScoped(*scope, pkt, delay_millis);
+  }
 }
 
 void MyMesh::onMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uint32_t sender_timestamp,
@@ -870,6 +879,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   dirty_contacts_expiry = 0;
   memset(advert_paths, 0, sizeof(advert_paths));
   memset(send_scope.key, 0, sizeof(send_scope.key));
+  send_unscoped = false;
 
   // defaults
   memset(&_prefs, 0, sizeof(_prefs));
@@ -989,9 +999,13 @@ struct FreqRange {
 };
 
 static FreqRange repeat_freq_ranges[] = {
+  #ifdef ALLOWED_REPEAT_FREQ_RANGE
+  ALLOWED_REPEAT_FREQ_RANGE
+  #else
   { 433000, 433000 },
   { 869000, 869000 },
   { 918000, 918000 }
+  #endif
 };
 
 bool MyMesh::isValidClientRepeatFreq(uint32_t f) const {
@@ -1904,10 +1918,14 @@ void MyMesh::handleCmdFrame(size_t len) {
     }
   } else if (cmd_frame[0] == CMD_SET_FLOOD_SCOPE_KEY && len >= 2 && cmd_frame[1] == 0) {
     if (len >= 2 + 16) {
-      memcpy(send_scope.key, &cmd_frame[2], sizeof(send_scope.key));  // set curr scope TransportKey
+      memcpy(send_scope.key, &cmd_frame[2], sizeof(send_scope.key));  // set scope override TransportKey
     } else {
-      memset(send_scope.key, 0, sizeof(send_scope.key));  // set scope to null
+      memset(send_scope.key, 0, sizeof(send_scope.key));  // reset scope override
     }
+    send_unscoped = false;
+    writeOKFrame();
+  } else if (cmd_frame[0] == CMD_SET_FLOOD_SCOPE_KEY && len >= 2 && cmd_frame[1] == 1) {  // ver 12+
+    send_unscoped = true;
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_DEFAULT_FLOOD_SCOPE && len >= 1) {
     if (len >= 1+31+16) {
@@ -1965,6 +1983,19 @@ void MyMesh::handleCmdFrame(size_t len) {
       memcpy(&out_frame[i], &r->upper_freq, 4); i += 4;
     }
     _serial->writeFrame(out_frame, i);
+  } else if (cmd_frame[0] == CMD_SEND_RAW_PACKET && len >= 4) {
+    auto pkt = obtainNewPacket();
+    if (pkt) {
+      uint8_t priority = cmd_frame[1];
+      if (tryParsePacket(pkt, &cmd_frame[2], len - 2)) {
+        sendPacket(pkt, priority, 0);
+        writeOKFrame();
+      } else {
+        writeErrFrame(ERR_CODE_ILLEGAL_ARG);
+      }
+    } else {
+      writeErrFrame(ERR_CODE_TABLE_FULL);
+    }
   } else {
     writeErrFrame(ERR_CODE_UNSUPPORTED_CMD);
     MESH_DEBUG_PRINTLN("ERROR: unknown command: %02X", cmd_frame[0]);
