@@ -239,6 +239,8 @@ void setup() {
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
 #endif
 
+  board.onBootComplete();
+
   // [DEBUG] Uncomment to check free heap / offline queue sizing:
   // Serial.println("[HEAP] === After setup ===");
   // dbgMemInfo();
