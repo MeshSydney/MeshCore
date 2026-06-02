@@ -94,7 +94,8 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *)&_prefs->flood_req_max, sizeof(_prefs->flood_req_max));                    // 294
     file.read((uint8_t *)&_prefs->flood_path_max, sizeof(_prefs->flood_path_max));                  // 295
     file.read((uint8_t *)&_prefs->flood_req_interval, sizeof(_prefs->flood_req_interval));          // 296
-    // next: 297
+    file.read((uint8_t *)&_prefs->flood_max_unscoped, sizeof(_prefs->flood_max_unscoped));          // 297
+    // next: 298
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -195,7 +196,8 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *)&_prefs->flood_req_max, sizeof(_prefs->flood_req_max));                    // 294
     file.write((uint8_t *)&_prefs->flood_path_max, sizeof(_prefs->flood_path_max));                  // 295
     file.write((uint8_t *)&_prefs->flood_req_interval, sizeof(_prefs->flood_req_interval));          // 296
-    // next: 297
+    file.write((uint8_t *)&_prefs->flood_max_unscoped, sizeof(_prefs->flood_max_unscoped));          // 297
+    // next: 298
 
     file.close();
   }
@@ -669,6 +671,15 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     } else {
       strcpy(reply, "Error, max 64");
     }
+  } else if (memcmp(config, "flood.max.unscoped ", 19) == 0) {
+    uint8_t m = atoi(&config[19]);
+    if (m <= 64) {
+      _prefs->flood_max_unscoped = m;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, max 64");
+    } 
   } else if (memcmp(config, "direct.txdelay ", 15) == 0) {
     float f = atof(&config[15]);
     if (f >= 0 && f <= 2.0f) {
@@ -854,6 +865,8 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
     sprintf(reply, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
   } else if (memcmp(config, "txdelay", 7) == 0) {
     sprintf(reply, "> %s", StrHelper::ftoa(_prefs->tx_delay_factor));
+  } else if (memcmp(config, "flood.max.unscoped", 18) == 0) {
+    sprintf(reply, "> %d", (uint32_t)_prefs->flood_max_unscoped);
   } else if (memcmp(config, "flood.max", 9) == 0) {
     sprintf(reply, "> %d", (uint32_t)_prefs->flood_max);
   } else if (memcmp(config, "direct.txdelay", 14) == 0) {
