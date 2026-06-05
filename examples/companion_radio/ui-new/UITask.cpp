@@ -1003,22 +1003,18 @@ void UITask::loop() {
   if (millis() > next_batt_chck) {
     uint16_t milliVolts = getBattMilliVolts();
     if (milliVolts > 0 && milliVolts < AUTO_SHUTDOWN_MILLIVOLTS) {
-
-      // show low battery shutdown alert
-      // we should only do this for eink displays, which will persist after power loss
-      #if defined(THINKNODE_M1) || defined(LILYGO_TECHO)
-      if (_display != NULL) {
-        _display->startFrame();
-        _display->setTextSize(2);
-        _display->setColor(DisplayDriver::RED);
-        _display->drawTextCentered(_display->width() / 2, 20, "Low Battery.");
-        _display->drawTextCentered(_display->width() / 2, 40, "Shutting Down!");
-        _display->endFrame();
+      if(!board.isExternalPowered()) {
+        if (_display != NULL) {
+          _display->startFrame();
+          _display->setTextSize(2);
+          _display->setColor(DisplayDriver::RED);
+          _display->drawTextCentered(_display->width() / 2, 20, "Low Battery.");
+          _display->drawTextCentered(_display->width() / 2, 40, "Shutting Down!");
+          _display->endFrame();
+          if (_display->isEink() == false) { delay(3000); }
+        }
+        shutdown();
       }
-      #endif
-
-      shutdown();
-
     }
     next_batt_chck = millis() + 8000;
   }
@@ -1046,7 +1042,7 @@ char UITask::handleLongPress(char c) {
 }
 
 char UITask::handleDoubleClick(char c) {
-  MESH_DEBUG_PRINTLN("UITask: double click triggered");
+  MESH_DEBUG_PRINTLN("UITask: double-click triggered");
   checkDisplayOn(c);
 #ifdef MORSE_COMPOSE_ENABLED
   if (curr == home) {

@@ -1026,8 +1026,8 @@ void MyMesh::loop() {
       // Completed full round-robin with no pushes - go to idle mode
       next_push = futureMillis(IDLE_PUSH_INTERVAL);
     } else {
-      // Still scanning clients, use moderate interval
-      next_push = futureMillis(SYNC_PUSH_INTERVAL / 4);
+      // were no unsynced posts for curr client, so process next client much quicker! (in next loop())
+      next_push = futureMillis(SYNC_PUSH_INTERVAL / 8);
     }
   }
 

@@ -42,6 +42,8 @@ public:
   #define CONTACTS_SRAM_FALLBACK  200
 #endif
 
+#define MAX_ANON_CONTACTS  8
+
 #ifndef MAX_CONNECTIONS
   #define MAX_CONNECTIONS  16
 #endif
@@ -101,7 +103,7 @@ protected:
   void bootstrapRTCfromContacts();
   void resetContacts() { num_contacts = 0; }
   void populateContactFromAdvert(ContactInfo& ci, const mesh::Identity& id, const AdvertDataParser& parser, uint32_t timestamp);
-  ContactInfo* allocateContactSlot(); // helper to find slot for new contact
+  ContactInfo* allocateContactSlot(bool transient_only=false); // helper to find slot for new contact
 
   // 'UI' concepts, for sub-classes to implement
   virtual bool isAutoAddEnabled() const { return true; }
