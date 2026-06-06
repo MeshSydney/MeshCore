@@ -12,10 +12,10 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 
 | Command | Range | Default | Description |
 |---|---|---|---|
-| `set flood.req.max <val>` | 0–255 | **6** | Max flood requests per sender pair before blocking. 0 = off. Counter decrements by 1 each interval (see below), so a node can send 6 in the first interval and 1 per interval after |
-| `get flood.req.max` | — | — | Show current value |
-| `set flood.req.interval <min>` | 1–255 | **60** | Minutes between flood request counter decrements |
-| `get flood.req.interval` | — | — | Show current value |
+| ~~`set flood.req.max <val>`~~ | 0–255 | ~~6~~ | **Removed in this fork** — time-based per-sender blocking was removed; pref still stored for compatibility with existing repeaters |
+| ~~`get flood.req.max`~~ | — | — | *(no-op)* |
+| ~~`set flood.req.interval <min>`~~ | 1–255 | ~~60~~ | **Removed in this fork** — pref still stored for compatibility |
+| ~~`get flood.req.interval`~~ | — | — | *(no-op)* |
 | `set flood.path.max <val>` | 0–255 | **12** | Max path hops for flood REQ/RESPONSE/PATH packets. Packets with more hops are dropped. 0 = off |
 | `get flood.path.max` | — | — | Show current value |
 | `set advert.ratelimit <sec>` | 0–3600 | **0** (off) | Minimum seconds between accepting flood adverts |
@@ -104,12 +104,10 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 - Persistent storage on filesystem; loaded on boot, saved on every change
 - **CLI commands**: `blacklist path|chan list|add|rem|clear [hex|#name[,...]]`
 
-### Flood Request Rate Limiting
-- **Per-sender rate limiting** for flood-routed REQ, TXT_MSG, RESPONSE, and PATH packets
-- Tracks up to **64 sender pairs** (identified by the 2-byte dest_hash + src_hash prefix)
-- Default: **6 requests** allowed before blocking (`set flood.req.max`), counter decrements by 1 every **60 minutes** (`set flood.req.interval`) — so a node can send 6 in the first interval and 1 per interval after, or 4 in the first interval and 3 the next
-- Setting `flood.req.max` to 0 disables rate limiting
-- Oldest entries are evicted when the table is full
+### ~~Flood Request Rate Limiting~~ (Removed)
+- The upstream per-sender time-based rate limiting (`flood.req.max` / `flood.req.interval`) has been **removed from this fork**
+- The `isFloodReqBlocked()` call in `filterRecvFloodPacket` has been stripped — these prefs are stored and CLI-accessible for backward compatibility with existing repeaters but have no effect
+- To disable rate limiting on existing (unflashed) repeaters: `set flood.req.max 0`
 
 ### Flood Path Length Limiting
 - Flood-routed REQ, RESPONSE, and PATH packets are dropped if the number of hops exceeds a configurable limit
