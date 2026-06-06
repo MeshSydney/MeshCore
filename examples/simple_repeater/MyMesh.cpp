@@ -830,97 +830,6 @@ void MyMesh::formatChanBlacklist(char* reply) {
   }
 }
 
-/* ------------------- Flood request rate limiting -------------------------- */
-
-bool MyMesh::isFloodReqBlocked(const mesh::Packet* packet) {
-  if (_prefs.flood_req_max == 0) return false;  // disabled
-
-  uint8_t pt = packet->getPayloadType();
-  if (pt != PAYLOAD_TYPE_REQ && pt != PAYLOAD_TYPE_TXT_MSG &&
-      pt != PAYLOAD_TYPE_RESPONSE && pt != PAYLOAD_TYPE_PATH) return false;
-  if (!packet->isRouteFlood()) return false;
-  if (packet->payload_len < 2) return false;
-
-  uint8_t key[2] = { packet->payload[0], packet->payload[1] };
-  unsigned long now = millis();
-
-  // Search for existing entry
-  int found = -1;
-  int evict = 0;
-  bool have_empty = false;
-  for (int i = 0; i < MAX_FLOOD_REQ_ENTRIES; i++) {
-    if (_flood_req_table[i].count == 0 && _flood_req_table[i].last_decrement == 0) {
-      if (!have_empty) { evict = i; have_empty = true; }  // prefer first empty slot
-      continue;
-    }
-    if (_flood_req_table[i].key[0] == key[0] && _flood_req_table[i].key[1] == key[1]) {
-      found = i;
-      break;
-    }
-    // track best eviction candidate: lowest count, then oldest (only if no empty slot)
-    if (!have_empty) {
-      FloodReqEntry& cur = _flood_req_table[i];
-      FloodReqEntry& best = _flood_req_table[evict];
-      if (cur.count < best.count
-          || (cur.count == best.count
-              && (now - cur.last_decrement) > (now - best.last_decrement))) {
-        evict = i;
-      }
-    }
-  }
-
-  if (found >= 0) {
-    FloodReqEntry& entry = _flood_req_table[found];
-    // Decrement by number of intervals elapsed since last decrement
-    unsigned long interval_ms = (unsigned long)_prefs.flood_req_interval * 60000UL;
-    unsigned long elapsed = now - entry.last_decrement;
-    uint8_t decrements = (uint8_t)(elapsed / interval_ms);
-    if (decrements > 0) {
-      if (decrements >= entry.count) {
-        entry.count = 0;
-      } else {
-        entry.count -= decrements;
-      }
-      entry.last_decrement = now;
-    }
-    // Check if blocked
-    if (entry.count >= _prefs.flood_req_max) {
-      MESH_DEBUG_PRINTLN("filterRecvFloodPacket: flood req blocked [%02X,%02X] count=%d",
-        (uint32_t)key[0], (uint32_t)key[1], entry.count);
-      return true;  // DROP
-    }
-    // Increment counter
-    entry.count++;
-    return false;
-  } else {
-    // New entry
-    int slot = evict;
-    _flood_req_table[slot].key[0] = key[0];
-    _flood_req_table[slot].key[1] = key[1];
-    _flood_req_table[slot].count = 1;
-    _flood_req_table[slot].last_decrement = now;
-    return false;
-  }
-}
-
-void MyMesh::floodReqDecrement() {
-  unsigned long now = millis();
-  for (int i = 0; i < MAX_FLOOD_REQ_ENTRIES; i++) {
-    if (_flood_req_table[i].count == 0 && _flood_req_table[i].last_decrement == 0) continue;
-    unsigned long interval_ms = (unsigned long)_prefs.flood_req_interval * 60000UL;
-    unsigned long elapsed = now - _flood_req_table[i].last_decrement;
-    uint8_t decrements = (uint8_t)(elapsed / interval_ms);
-    if (decrements > 0) {
-      if (decrements >= _flood_req_table[i].count) {
-        _flood_req_table[i].count = 0;
-      } else {
-        _flood_req_table[i].count -= decrements;
-      }
-      _flood_req_table[i].last_decrement = now;
-    }
-  }
-}
-
 /* -------------------------------------------------------------------------- */
 
 int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
@@ -1471,7 +1380,6 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(_chan_blacklist,  0, sizeof(_chan_blacklist));
   memset(_chan_name_filters, 0, sizeof(_chan_name_filters));
   _num_chan_name_filters = 0;
-  memset(_flood_req_table, 0, sizeof(_flood_req_table));
 
 #if MAX_NEIGHBOURS
   memset(neighbours, 0, sizeof(neighbours));
@@ -1498,9 +1406,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_max_unscoped = 64;
   _prefs.interference_threshold = 0; // disabled
   _prefs.advert_jail = 12; // 12 hours
-  _prefs.flood_req_max = DEFAULT_FLOOD_REQ_MAX; // default 6
   _prefs.flood_path_max = DEFAULT_FLOOD_PATH_MAX; // default 12
-  _prefs.flood_req_interval = DEFAULT_FLOOD_REQ_INTERVAL; // default 60 mins
   
   // compile-time overrides from [repeater_settings] / platformio.ini
 #ifdef REPEATER_TX_DELAY
@@ -2057,8 +1963,6 @@ void MyMesh::loop() {
 #endif
 
   mesh::Mesh::loop();
-
-  floodReqDecrement();
 
   if (next_flood_advert && millisHasNowPassed(next_flood_advert)) {
     mesh::Packet *pkt = createSelfAdvert();
