@@ -1081,11 +1081,6 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
     return true;
   }
 
-  // Drop flood requests exceeding rate limit
-  if (isFloodReqBlocked(pkt)) {
-    return true;
-  }
-
   // Drop flood REQ/RESPONSE/PATH packets that exceed the path hop limit
   if (_prefs.flood_path_max > 0 && pkt->isRouteFlood()) {
     uint8_t pt = pkt->getPayloadType();
