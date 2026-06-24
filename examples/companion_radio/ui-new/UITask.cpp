@@ -113,6 +113,7 @@ class HomeScreen : public UIScreen {
   bool _display_blanked;
   bool _just_blanked;
   uint8_t _batt_render_count;
+  uint8_t _normal_render_count;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
 
@@ -225,7 +226,7 @@ class HomeScreen : public UIScreen {
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
      : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
-       _shutdown_init(false), _display_blanked(false), _just_blanked(false), _batt_render_count(0), sensors_lpp(200) {  }
+       _shutdown_init(false), _display_blanked(false), _just_blanked(false), _batt_render_count(0), _normal_render_count(0), sensors_lpp(200) {  }
 
   void poll() override {
     if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
@@ -264,6 +265,12 @@ public:
       display.fillRect(barX + 1, barY + 1, (pct * (barW - 2)) / 100, barH - 2);
 
       return 60000;  // refresh rarely while blanked
+    }
+    // periodic full refresh to prevent e-ink ghosting during normal operation
+    _normal_render_count++;
+    if (_normal_render_count >= 60) {  // full refresh every ~5 min (60 * 5s)
+      _normal_render_count = 0;
+      display.setNextFrameFullRefresh();
     }
     char tmp[80];
     // node name
@@ -792,6 +799,7 @@ void UITask::userLedHandler() {
 
 void UITask::setCurrScreen(UIScreen* c) {
   curr = c;
+  if (_display) _display->setNextFrameFullRefresh();  // full refresh on screen transition
   _next_refresh = 100;
 }
 
