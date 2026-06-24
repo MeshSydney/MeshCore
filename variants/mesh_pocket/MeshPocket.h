@@ -29,7 +29,7 @@ public:
     raw /= 8;
     digitalWrite(PIN_BAT_CTL, LOW);
 
-    return (uint16_t)((float)raw * MV_LSB * 4.9);
+    return (uint16_t)((float)raw * MV_LSB * 4.96);  // 4.96 = 390k/100k divider + ~1.3% ADC correction
   }
 
   const char* getManufacturerName() const override {
