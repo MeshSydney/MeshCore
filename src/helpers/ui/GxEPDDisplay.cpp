@@ -26,8 +26,12 @@ bool GxEPDDisplay::begin() {
   setTextSize(1);  // Default to size 1
   display.setPartialWindow(0, 0, display.width(), display.height());
 
-  display.fillScreen(GxEPD_WHITE);
-  display.display(false);  // full refresh on startup to fully clear the display
+  // Let the GxEPD2 driver's own _initial_write mechanism clear the display on
+  // the first frame (writes white to both controller frame buffers then full
+  // refreshes), and force that first frame to use display(false) so the content
+  // also appears via a full refresh rather than a partial update.
+  _full_refresh_pending = true;
+
   #if DISP_BACKLIGHT
   digitalWrite(DISP_BACKLIGHT, LOW);
   pinMode(DISP_BACKLIGHT, OUTPUT);
