@@ -24,16 +24,12 @@ bool GxEPDDisplay::begin() {
   display.init(115200, true, 2, false);
   display.setRotation(DISPLAY_ROTATION);
   setTextSize(1);  // Default to size 1
-  // Two-phase boot clear:
-  // Phase 1 - clearScreen() writes 0xFF to both controller frame buffers (0x26
-  //   prev and 0x24 curr) then does a full refresh → panel visibly goes black
-  //   then settles on white.
-  // Phase 2 - _full_refresh_pending causes the first content frame to also use
-  //   display(false) (full refresh) rather than a partial update, so content
-  //   appears cleanly on the freshly cleared panel.
-  display.clearScreen();
-  _full_refresh_pending = true;
   display.setPartialWindow(0, 0, display.width(), display.height());
+  // Schedule a clear on the first rendered frame via endFrame().
+  // endFrame() will call clearScreen() (Mode 1, panel goes white) then
+  // display(true) (Mode 2 partial with 0x26=white vs 0x24=content),
+  // giving proper WB transitions for all content pixels.
+  _full_refresh_pending = true;
 
   #if DISP_BACKLIGHT
   digitalWrite(DISP_BACKLIGHT, LOW);
@@ -183,7 +179,18 @@ void GxEPDDisplay::setNextFrameFullRefresh() {
 void GxEPDDisplay::endFrame() {
   uint32_t crc = display_crc.finalize();
   if (crc != last_display_crc_value || _full_refresh_pending) {
-    display.display(_full_refresh_pending ? false : true);  // full refresh when flagged, partial otherwise
+    if (_full_refresh_pending) {
+      // Mode 1 full refresh: writes 0xFF to both controller frame buffers
+      // (0x26 prev and 0x24 curr) then runs the OTP full waveform → panel
+      // goes black then settles on white.
+      // After this: 0x26=white, 0x24=white.
+      display.clearScreen();
+    }
+    // Always use partial mode (Mode 2). When preceded by clearScreen:
+    //   0x26=white, display(true) writes content only to 0x24 → Mode 2 sees
+    //   WB transitions (white→black) for all black content pixels → correct.
+    // For normal partial frames: 0x26=prev content, 0x24=new content → diff.
+    display.display(true);
     _full_refresh_pending = false;
     last_display_crc_value = crc;
   }
