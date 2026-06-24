@@ -113,7 +113,7 @@ class HomeScreen : public UIScreen {
   bool _display_blanked;
   bool _just_blanked;
   uint8_t _batt_render_count;
-  uint8_t _normal_render_count;
+  uint16_t _normal_render_count;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 
 
@@ -268,7 +268,7 @@ public:
     }
     // periodic full refresh to prevent e-ink ghosting during normal operation
     _normal_render_count++;
-    if (_normal_render_count >= 60) {  // full refresh every ~5 min (60 * 5s)
+    if (_normal_render_count >= 360) {  // full refresh every ~30 min (360 * 5s)
       _normal_render_count = 0;
       display.setNextFrameFullRefresh();
     }
@@ -799,7 +799,6 @@ void UITask::userLedHandler() {
 
 void UITask::setCurrScreen(UIScreen* c) {
   curr = c;
-  if (_display) _display->setNextFrameFullRefresh();  // full refresh on screen transition
   _next_refresh = 100;
 }
 

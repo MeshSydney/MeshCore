@@ -15,7 +15,6 @@ public:
   void begin();
 
   uint16_t getBattMilliVolts() override {
-    int adcvalue = 0;
     analogReadResolution(12);
     analogReference(AR_INTERNAL_3_0);
     pinMode(PIN_BAT_CTL, OUTPUT);
@@ -23,10 +22,14 @@ public:
     digitalWrite(PIN_BAT_CTL, HIGH);
 
     delay(10);
-    adcvalue = analogRead(PIN_VBAT_READ);
+    uint32_t raw = 0;
+    for (int i = 0; i < 8; i++) {
+      raw += analogRead(PIN_VBAT_READ);
+    }
+    raw /= 8;
     digitalWrite(PIN_BAT_CTL, LOW);
 
-    return (uint16_t)((float)adcvalue * MV_LSB * 4.9);
+    return (uint16_t)((float)raw * MV_LSB * 4.9);
   }
 
   const char* getManufacturerName() const override {
