@@ -268,7 +268,7 @@ public:
     }
     // periodic full refresh to prevent e-ink ghosting during normal operation
     _normal_render_count++;
-    if (_normal_render_count >= 360) {  // full refresh every ~30 min (360 * 5s)
+    if (_normal_render_count >= 60) {  // full refresh every ~5 min (60 * 5s)
       _normal_render_count = 0;
       display.setNextFrameFullRefresh();
     }
