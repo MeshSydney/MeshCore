@@ -24,13 +24,16 @@ bool GxEPDDisplay::begin() {
   display.init(115200, true, 2, false);
   display.setRotation(DISPLAY_ROTATION);
   setTextSize(1);  // Default to size 1
-  display.setPartialWindow(0, 0, display.width(), display.height());
-
-  // Let the GxEPD2 driver's own _initial_write mechanism clear the display on
-  // the first frame (writes white to both controller frame buffers then full
-  // refreshes), and force that first frame to use display(false) so the content
-  // also appears via a full refresh rather than a partial update.
+  // Two-phase boot clear:
+  // Phase 1 - clearScreen() writes 0xFF to both controller frame buffers (0x26
+  //   prev and 0x24 curr) then does a full refresh → panel visibly goes black
+  //   then settles on white.
+  // Phase 2 - _full_refresh_pending causes the first content frame to also use
+  //   display(false) (full refresh) rather than a partial update, so content
+  //   appears cleanly on the freshly cleared panel.
+  display.clearScreen();
   _full_refresh_pending = true;
+  display.setPartialWindow(0, 0, display.width(), display.height());
 
   #if DISP_BACKLIGHT
   digitalWrite(DISP_BACKLIGHT, LOW);
