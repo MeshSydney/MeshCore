@@ -159,6 +159,11 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     packet->header = save;
   }
 
+  if (from && from->type == ADV_TYPE_NONE) {   // already in contacts, but from a temporary ANON_REQ ?
+    memset(from, 0, sizeof(*from));  // clear the anon/temp slot
+    from = NULL;  // do normal 'add' flow
+  }
+
   bool is_new = false; // true = not in contacts[], false = exists in contacts[]
   if (from == NULL) {
     if (!shouldAutoAddContactType(parser.getType())) {
@@ -963,11 +968,11 @@ bool BaseChatMesh::getContactByIdx(uint32_t idx, ContactInfo& contact) {
 }
 
 ContactsIterator BaseChatMesh::startContactsIterator() {
-  return ContactsIterator();
+  return ContactsIterator(MAX_ANON_CONTACTS);   // start at offset, skip the anon entries
 }
 
 bool ContactsIterator::hasNext(const BaseChatMesh* mesh, ContactInfo& dest) {
-  if (next_idx >= mesh->getNumContacts()) return false;
+  if (next_idx >= mesh->getTotalContactSlots()) return false;
 
   dest = mesh->contacts[next_idx++];
   return true;

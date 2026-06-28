@@ -28,8 +28,9 @@ public:
 class BaseChatMesh;
 
 class ContactsIterator {
-  int next_idx = 0;
+  int next_idx;
 public:
+  ContactsIterator(int start) { next_idx = start; }
   bool hasNext(const BaseChatMesh* mesh, ContactInfo& dest);
 };
 
@@ -101,6 +102,7 @@ protected:
 
   void initContacts();
   void bootstrapRTCfromContacts();
+
   void resetContacts() { num_contacts = 0; }
   void populateContactFromAdvert(ContactInfo& ci, const mesh::Identity& id, const AdvertDataParser& parser, uint32_t timestamp);
   ContactInfo* allocateContactSlot(bool transient_only=false); // helper to find slot for new contact
