@@ -1409,6 +1409,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.interference_threshold = 0; // disabled
   _prefs.advert_jail = 12; // 12 hours
   _prefs.flood_path_max = DEFAULT_FLOOD_PATH_MAX; // default 12
+  _prefs.cad_enabled = 0;            // hardware CAD before TX (off by default; 'set cad on')
   
   // compile-time overrides from [repeater_settings] / platformio.ini
 #ifdef REPEATER_TX_DELAY
@@ -1465,6 +1466,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.rx_boosted_gain = 1; // enabled by default;
 #endif
 #endif
+  _prefs.radio_fem_rxgain = 1;
 
   pending_discover_tag = 0;
   pending_discover_until = 0;
@@ -1515,6 +1517,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   radio_driver.setRxBoostedGainMode(_prefs.rx_boosted_gain);
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
+  board.setLoRaFemLnaEnabled(_prefs.radio_fem_rxgain);
 
   updateAdvertTimer();
   updateFloodAdvertTimer();
@@ -1609,11 +1612,9 @@ void MyMesh::setTxPower(int8_t power_dbm) {
   radio_driver.setTxPower(power_dbm);
 }
 
-#if defined(USE_SX1262) || defined(USE_SX1268)
-void MyMesh::setRxBoostedGain(bool enable) {
-  radio_driver.setRxBoostedGainMode(enable);
+bool MyMesh::setRxBoostedGain(bool enable) {
+  return radio_driver.setRxBoostedGainMode(enable);
 }
-#endif
 
 void MyMesh::formatNeighborsReply(char *reply) {
   char *dp = reply;

@@ -61,11 +61,13 @@ struct NodePrefs { // persisted to file
   float adc_multiplier;
   char owner_info[120];
   uint8_t rx_boosted_gain; // power settings
+  uint8_t radio_fem_rxgain; // LoRa FEM RX gain setting
   uint8_t path_hash_mode;   // which path mode to use when sending
   uint8_t loop_detect;
   uint16_t advert_ratelimit; // seconds, 0 = off. Rate limit for incoming flood adverts
   uint8_t advert_jail;        // hours, 0 = off. Per-sender flood advert jail interval
   uint8_t flood_path_max;     // max path hops for flood REQ/RESPONSE/PATH, 0 = off. Default 12.
+  uint8_t cad_enabled;      // hardware Channel Activity Detection before TX (boolean)
 };
 
 class CommonCLICallbacks {
@@ -115,8 +117,8 @@ public:
     // no op by default
   };
 
-  virtual void setRxBoostedGain(bool enable) {
-    // no op by default
+  virtual bool setRxBoostedGain(bool enable) {
+    return false; // CommonCLI reports unsupported if not overridden by wrapper
   };
 };
 
