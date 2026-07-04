@@ -972,7 +972,7 @@ ContactsIterator BaseChatMesh::startContactsIterator() {
 }
 
 bool ContactsIterator::hasNext(const BaseChatMesh* mesh, ContactInfo& dest) {
-  if (next_idx >= mesh->getTotalContactSlots()) return false;
+  if (next_idx >= mesh->max_contacts) return false;
 
   dest = mesh->contacts[next_idx++];
   return true;
