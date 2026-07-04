@@ -966,19 +966,6 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
     }
   }
 
-  // just try to determine region for packet (apply later in allowPacketForward())
-  if (pkt->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD) {
-    recv_pkt_region = region_map.findMatch(pkt, REGION_DENY_FLOOD);
-  } else if (pkt->getRouteType() == ROUTE_TYPE_FLOOD) {
-    if (region_map.getWildcard().flags & REGION_DENY_FLOOD) {
-      recv_pkt_region = NULL;
-    } else {
-      recv_pkt_region =  &region_map.getWildcard();
-    }
-  } else {
-    recv_pkt_region = NULL;
-  }
-
   // Drop packets whose path contains a blacklisted node prefix
   if (isPathBlacklisted(pkt)) {
     MESH_DEBUG_PRINTLN("filterRecvFloodPacket: path prefix blacklisted, dropping!");
@@ -1005,6 +992,22 @@ bool MyMesh::filterRecvFloodPacket(mesh::Packet* pkt) {
 
   // do normal processing
   return false;
+}
+
+mesh::DispatcherAction MyMesh::onRecvPacket(mesh::Packet* pkt) {
+  // try to determine region for packet (apply later in allowPacketForward())
+  if (pkt->getRouteType() == ROUTE_TYPE_TRANSPORT_FLOOD) {
+    recv_pkt_region = region_map.findMatch(pkt, REGION_DENY_FLOOD);
+  } else if (pkt->getRouteType() == ROUTE_TYPE_FLOOD) {
+    if (region_map.getWildcard().flags & REGION_DENY_FLOOD) {
+      recv_pkt_region = NULL;
+    } else {
+      recv_pkt_region =  &region_map.getWildcard();
+    }
+  } else {
+    recv_pkt_region = NULL;
+  }
+  return Mesh::onRecvPacket(pkt);
 }
 
 void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const mesh::Identity &sender,
@@ -1376,6 +1379,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   memset(_advert_jail, 0, sizeof(_advert_jail));
   _logging = false;
   region_load_active = false;
+  recv_pkt_region = NULL;
 
   memset(_path_blacklist, 0, sizeof(_path_blacklist));
   memset(_chan_blacklist,  0, sizeof(_chan_blacklist));
