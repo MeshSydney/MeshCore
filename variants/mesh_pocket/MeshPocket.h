@@ -35,8 +35,4 @@ public:
   const char* getManufacturerName() const override {
     return "Heltec MeshPocket";
   }
-
-  void powerOff() override {
-    sd_power_system_off();
-  }
 };
