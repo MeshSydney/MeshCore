@@ -271,7 +271,10 @@ float MyMesh::getAirtimeBudgetFactor() const {
 }
 
 int MyMesh::getInterferenceThreshold() const {
-  return 0; // disabled for now, until currentRSSI() problem is resolved
+  return _prefs.interference_threshold;
+}
+int MyMesh::getAGCResetInterval() const {
+  return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
 }
 bool MyMesh::getCADEnabled() const {
   return true; // hardware CAD before TX (no CLI toggle on companion; enabled by default)
