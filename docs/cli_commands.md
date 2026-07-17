@@ -213,7 +213,7 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 **Set by build flag:** `LORA_FREQ`, `LORA_BW`, `LORA_SF`, `LORA_CR`
 
-**Default:** `869.525,250,11,5`
+**Default:** `915.075,125,9,5`
 
 **Note:** Requires reboot to apply
 

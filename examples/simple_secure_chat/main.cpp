@@ -21,13 +21,13 @@
 #define FIRMWARE_VER_TEXT   "v2 (build: 4 Feb 2025)"
 
 #ifndef LORA_FREQ
-  #define LORA_FREQ   915.0
+  #define LORA_FREQ   915.075
 #endif
 #ifndef LORA_BW
-  #define LORA_BW     250
+  #define LORA_BW     125.0
 #endif
 #ifndef LORA_SF
-  #define LORA_SF     10
+  #define LORA_SF     9
 #endif
 #ifndef LORA_CR
   #define LORA_CR      5
