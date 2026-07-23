@@ -243,6 +243,7 @@ private:
 
     bool isChannelMsg() const;
   };
+  int offline_queue_head;  // circular buffer head index
   int offline_queue_len;
   int offline_queue_max;
   Frame* offline_queue;

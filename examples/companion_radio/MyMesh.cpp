@@ -226,41 +226,44 @@ void MyMesh::initOfflineQueue() {
     offline_queue = new Frame[OFFLINE_QUEUE_SIZE];
   }
   offline_queue_max = OFFLINE_QUEUE_SIZE;
+  offline_queue_head = 0;
 }
 
 void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
   if (offline_queue_len >= offline_queue_max) {
     MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
-    int pos = 0;
-    while (pos < offline_queue_len) {
-      if (offline_queue[pos].isChannelMsg()) {
-        for (int i = pos; i < offline_queue_len - 1; i++) { // delete oldest channel msg from queue
-          offline_queue[i] = offline_queue[i + 1];
-        }
+    // Scan for the oldest channel message to evict (preserves direct messages)
+    for (int i = 0; i < offline_queue_len; i++) {
+      int idx = (offline_queue_head + i) % offline_queue_max;
+      if (offline_queue[idx].isChannelMsg()) {
         MESH_DEBUG_PRINTLN("INFO: removed oldest channel message from queue.");
-        offline_queue[offline_queue_len - 1].len = len;
-        memcpy(offline_queue[offline_queue_len - 1].buf, frame, len);
+        // Shift logical entries from this position toward the tail by one slot
+        for (int j = i; j < offline_queue_len - 1; j++) {
+          int src = (offline_queue_head + j + 1) % offline_queue_max;
+          int dst = (offline_queue_head + j)     % offline_queue_max;
+          offline_queue[dst] = offline_queue[src];
+        }
+        int tail = (offline_queue_head + offline_queue_len - 1) % offline_queue_max;
+        offline_queue[tail].len = len;
+        memcpy(offline_queue[tail].buf, frame, len);
         return;
       }
-      pos++;
     }
     MESH_DEBUG_PRINTLN("INFO: no channel messages to remove from queue.");
   } else {
-    offline_queue[offline_queue_len].len = len;
-    memcpy(offline_queue[offline_queue_len].buf, frame, len);
+    int tail = (offline_queue_head + offline_queue_len) % offline_queue_max;
+    offline_queue[tail].len = len;
+    memcpy(offline_queue[tail].buf, frame, len);
     offline_queue_len++;
   }
 }
 
 int MyMesh::getFromOfflineQueue(uint8_t frame[]) {
-  if (offline_queue_len > 0) {         // check offline queue
-    size_t len = offline_queue[0].len; // take from top of queue
-    memcpy(frame, offline_queue[0].buf, len);
-
+  if (offline_queue_len > 0) {                                    // check offline queue
+    size_t len = offline_queue[offline_queue_head].len;           // take from head
+    memcpy(frame, offline_queue[offline_queue_head].buf, len);
+    offline_queue_head = (offline_queue_head + 1) % offline_queue_max;  // advance head (O(1))
     offline_queue_len--;
-    for (int i = 0; i < offline_queue_len; i++) { // delete top item from queue
-      offline_queue[i] = offline_queue[i + 1];
-    }
     return len;
   }
   return 0; // queue is empty
