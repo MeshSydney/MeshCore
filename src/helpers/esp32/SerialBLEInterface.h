@@ -6,6 +6,8 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 
 class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLEServerCallbacks, BLECharacteristicCallbacks {
   BLEServer *pServer;
@@ -29,13 +31,14 @@ class SerialBLEInterface : public BaseSerialInterface, BLESecurityCallbacks, BLE
     uint8_t buf[MAX_FRAME_SIZE];
   };
 
-  #define FRAME_QUEUE_SIZE  8
-  int recv_queue_len;
-  Frame recv_queue[FRAME_QUEUE_SIZE];
+  #define FRAME_QUEUE_SIZE  4
+  StaticQueue_t recv_queue_state;
+  uint8_t recv_queue_storage[FRAME_QUEUE_SIZE * sizeof(Frame)];
+  QueueHandle_t recv_queue;
   int send_queue_len;
   Frame send_queue[FRAME_QUEUE_SIZE];
 
-  void clearBuffers() { recv_queue_len = 0; send_queue_len = 0; }
+  void clearBuffers();
 
 protected:
   // BLESecurityCallbacks methods
@@ -64,7 +67,10 @@ public:
     _isEnabled = false;
     _last_write = 0;
     last_conn_id = 0;
-    send_queue_len = recv_queue_len = 0;
+    recv_queue = xQueueCreateStatic(
+      FRAME_QUEUE_SIZE, sizeof(Frame), recv_queue_storage, &recv_queue_state
+    );
+    send_queue_len = 0;
     _conn_params_update_time = 0;
     _phy_update_time = 0;
     _mode_change_time = 0;

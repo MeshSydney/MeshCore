@@ -125,7 +125,7 @@ class CustomSX1262 : public SX1262 {
       if (preamble) {
         if (_activityAt == 0) _activityAt = now;
         if (now - _activityAt > _preambleMillis) {
-          clearIrqStatus(RADIOLIB_IRQ_PREAMBLE_DETECTED);
+          clearIrqFlags(RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED);
           _activityAt = 0;
           MESH_DEBUG_PRINTLN("Clearing preamble IRQ after %ums", _preambleMillis);
 

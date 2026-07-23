@@ -207,6 +207,7 @@ public:
 
   void dumpLogFile() override;
   void setTxPower(int8_t power_dbm) override;
+  bool setRxBoostedGain(bool enable) override;
 
   void formatNeighborsReply(char *reply) override {
     strcpy(reply, "not supported");
