@@ -20,9 +20,7 @@ class DataStore {
   IdentityStore identity_store;
 
   void loadPrefsInt(const char *filename, NodePrefs& prefs);
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   void checkAdvBlobFile();
-#endif
 
 public:
   DataStore(FILESYSTEM& fs, mesh::RTCClock& clock);
