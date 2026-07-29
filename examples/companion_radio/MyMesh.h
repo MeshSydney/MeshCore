@@ -172,7 +172,11 @@ public:
   void queueSentChannelMessage(uint8_t channel_idx, uint32_t timestamp, const char* text);
 #endif
 
-  void savePrefs() { _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon); }
+  void savePrefs() {
+    _prefs.node_lat = sensors.node_lat;
+    _prefs.node_lon = sensors.node_lon;
+    _store->savePrefs(_prefs);
+  }
 
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
