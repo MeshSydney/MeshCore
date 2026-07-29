@@ -253,7 +253,7 @@ public:
       char pct_str[6];
       snprintf(pct_str, sizeof(pct_str), "%d%%", pct);
 
-      display.setColor(DisplayDriver::GREEN);
+      display.setColor(UIColor::primary_txt);
       display.setTextSize(3);
       display.drawTextCentered(display.width() / 2, 22, pct_str);
 
