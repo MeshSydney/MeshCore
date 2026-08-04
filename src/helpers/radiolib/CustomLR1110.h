@@ -36,8 +36,9 @@ class CustomLR1110 : public LR1110 {
     bool getRxBoostedGainMode() const { return _rx_boosted; }
 
     int16_t startReceive() override {
-      // include the PREAMBLE_DETECTED irq bit in reported flags.
-      return LR1110::startReceive(RADIOLIB_LR11X0_RX_TIMEOUT_INF, RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED), RADIOLIB_IRQ_RX_DEFAULT_MASK, 0);
+      // do NOT arm PREAMBLE_DETECTED: it makes isReceiving() stall checkSend()
+      // on any background preamble, so ping/login replies miss the sender window.
+      return LR1110::startReceive();
     }
 
     bool isReceiving() {
