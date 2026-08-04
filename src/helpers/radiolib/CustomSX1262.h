@@ -101,9 +101,8 @@ class CustomSX1262 : public SX1262 {
     }
 
     int16_t startReceive() override {
-      // do NOT arm PREAMBLE_DETECTED: it makes isReceiving() stall checkSend()
-      // on any background preamble, so ping/login replies miss the sender window.
-      return SX1262::startReceive();
+      // include the PREAMBLE_DETECTED irq bit in reported flags
+      return SX1262::startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF, RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1UL << RADIOLIB_IRQ_PREAMBLE_DETECTED), RADIOLIB_IRQ_RX_DEFAULT_MASK, 0);
     }
 
     bool isReceiving() {
