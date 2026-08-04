@@ -328,16 +328,12 @@ void Dispatcher::checkSend() {
       outbound_start = _ms->getMillis();
       bool success = _radio->startSendRaw(raw, len);
       if (!success) {
-        MESH_DEBUG_PRINTLN("%s Dispatcher::checkSend(): ERROR: send start failed!", getLogDateTime());
+        MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): ERROR: send start failed!", getLogDateTime());
 
         logTxFail(outbound, outbound->getRawLength());
 
-        // re-queue instead of dropping so the packet gets another chance
-        int retry_delay = getCADFailRetryDelay();
-        unsigned long retry_time = futureMillis(retry_delay);
-        _mgr->queueOutbound(outbound, 0, retry_time);
+        releasePacket(outbound);  // return to pool
         outbound = NULL;
-        next_tx_time = retry_time;
         return;
       }
       outbound_expiry = futureMillis(max_airtime);
