@@ -6,22 +6,19 @@ This fork tracks [meshcore-dev/MeshCore](https://github.com/meshcore-dev/MeshCor
 
 ## CLI Command Reference
 
-All `set`/`get` commands below are available on all node types (repeater, companion, room server, sensor). Blacklist commands are repeater-only.
+All `set`/`get` commands below are available on all node types (repeater, companion, room server, sensor) unless noted otherwise. Blacklist commands are repeater-only.
 
 ### Flood & Abuse Prevention Settings
 
 | Command | Range | Default | Description |
 |---|---|---|---|
-| ~~`set flood.req.max <val>`~~ | 0–255 | ~~6~~ | **Removed in this fork** — time-based per-sender blocking was removed; pref still stored for compatibility with existing repeaters |
-| ~~`get flood.req.max`~~ | — | — | *(no-op)* |
-| ~~`set flood.req.interval <min>`~~ | 1–255 | ~~60~~ | **Removed in this fork** — pref still stored for compatibility |
-| ~~`get flood.req.interval`~~ | — | — | *(no-op)* |
 | `set flood.path.max <val>` | 0–255 | **12** | Max path hops for flood REQ/RESPONSE/PATH packets. Packets with more hops are dropped. 0 = off |
 | `get flood.path.max` | — | — | Show current value |
-| `set advert.ratelimit <sec>` | 0–3600 | **0** (off) | Minimum seconds between accepting flood adverts |
+| `set advert.ratelimit <sec>` | 0–3600 | **0** (off) | Minimum seconds between accepting flood adverts (global, not per-sender) |
 | `get advert.ratelimit` | — | — | Show current value |
-| `set advert.jail <hrs>` | 0–168 | **12** | Hours to jail a sender that exceeds the advert rate limit. 0 = off |
+| `set advert.jail <hrs>` | 0–168 | **12** | Hours a sender must slow down before its "strikes" decay. Repeated over-frequent adverts jail the sender (repeater-only) |
 | `get advert.jail` | — | — | Show current value |
+| `jail` | — | — | List currently jailed senders (pubkey prefix, strike count, average advert interval) — repeater only |
 
 ### Blacklist Commands (Repeater Only)
 
@@ -36,64 +33,69 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 | `blacklist chan rem <hex\|#name>[,...]` | Remove channel blacklist entry(ies) |
 | `blacklist chan clear` | Clear all channel blacklist entries |
 
-**Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters.
+**Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining)).
 
 ---
 
 ## 1. Radio / LoRa Configuration (`platformio.ini`)
-- **Frequency changed** from 869.618 MHz (EU) → **916.575 MHz** (AU/US region)
-- **Spreading factor changed** from SF8 → **SF7**
-- Added `LORA_CR=8` (coding rate)
-- Added shared `[repeater_settings]` PlatformIO config section to avoid duplicating repeater build flags across variants
+- **Frequency changed** from 869.618 MHz (EU) → **915.075 MHz**
+- **Bandwidth changed** from 62.5 kHz → **125 kHz**
+- **Spreading factor changed** from SF8 → **SF9**
+- `LORA_CR` now set explicitly to **5** (same value as upstream's implicit default)
+- Added a shared `[repeater_settings]` PlatformIO config section so Sydney Mesh's repeater defaults (see section 8) don't need to be duplicated across every variant — envs opt in with `extends = <board>, repeater_settings`
 
 ---
 
-## 2. Dispatcher — Send Retry Logic (`src/Dispatcher.cpp`)
-- CAD fail max duration doubled: 4 s → **8 s**
-- Failed sends are now **re-queued and retried** instead of being dropped
-- Fixed debug log label (`checkSend` instead of `loop`)
-
----
-
-## 3. Contact Storage — Dynamic/PSRAM Allocation (`src/helpers/BaseChatMesh.*`)
+## 2. Contact Storage — Dynamic/PSRAM Allocation (`src/helpers/BaseChatMesh.*`)
 - `contacts[]` and `sort_array[]` changed from **fixed static arrays** to **heap-allocated pointers**
 - On ESP32 with PSRAM, `initContacts()` allocates from PSRAM (enabling much larger `MAX_CONTACTS`)
 - Falls back to SRAM with a safe limit (`CONTACTS_SRAM_FALLBACK`, default 200) when PSRAM unavailable
-- Added `getMaxContacts()` API
-- CLI text payloads embedded in PATH packets are now parsed and dispatched via `onCommandDataRecv`
+- Reserved "anonymous" contact slots were removed — `num_contacts` now starts at 0 instead of `MAX_ANON_CONTACTS`, and `allocateContactSlot()`/`ContactsIterator` were simplified to match
+- Added `getMaxContacts()` API; `getNumContacts()` no longer subtracts the (now removed) anon-slot offset
+- CLI text payloads embedded in PATH packets (sent by a repeater via `createPathReturn`) are now parsed and dispatched via `onCommandDataRecv`
 
 ---
 
-## 4. BLE Throughput Improvements (`src/helpers/esp32/SerialBLEInterface.*`)
+## 3. ESP32 Companion Radio — Filesystem Migration to LittleFS
+- The ESP32 companion radio build now uses **LittleFS** instead of **SPIFFS** for its filesystem
+- Per-contact/blob files are unified into a **single blob store file** rather than one file per blob under `/bl/`
+
+---
+
+## 4. BLE Throughput & Adaptive Connection Improvements (`src/helpers/esp32/SerialBLEInterface.*`)
 - MTU increased to **512 bytes**
-- Frame queue doubled: 4 → **8 slots**
-- **Adaptive connection interval**: fast mode (7.5–15 ms) during sync vs idle mode (45–90 ms) when inactive — notifications sent every **8 ms** minimum (`BLE_WRITE_MIN_INTERVAL`), improving companion app sync speed
-- `isWriteBusy()` now reflects the 8 ms send interval rather than a fixed timer
+- Prefers **2M PHY** (BLE 5.0) for all connections, doubling the air data rate when the peer supports it; falls back to 1M PHY automatically otherwise
+- **Adaptive connection interval** via a new `setFastMode(bool)` hook on `BaseSerialInterface`: fast mode (7.5–15 ms interval) during active sync (contacts/channel streaming, `CMD_SYNC_NEXT_MESSAGE`, `CMD_GET_CHANNEL`) vs idle mode (45–90 ms) once sync completes — reduces power use without hurting sync speed
+- Connection-parameter and PHY updates are deferred to `checkRecvFrame()` (main loop context) instead of being issued from inside the Bluedroid BLE task callback, which previously could deadlock the BLE stack for several seconds
+- Notifications sent every **8 ms** minimum (`BLE_WRITE_MIN_INTERVAL`, was 60 ms)
 
 ---
 
 ## 5. Radio Wrapper Enhancements (`src/helpers/radiolib/`)
 - **`CustomSX1262Wrapper.h`**: Added `RSSI_OFFSET` define (default 0) — applied to both current and last RSSI readings to compensate for external LNA gain (e.g. Heltec V4's GC1109 LNA)
-- **`RadioLibWrappers.h/cpp`**: Dynamic preamble length at boot and after send — uses "long" preamble for low SF (where airtime impact is minimal) and "short" for high SF; configurable via `setPreambleLengths()`
-- **`CustomLR1110Wrapper.h`**: Same SF-aware preamble logic applied post-send
+- **`RadioLibWrappers.h`**: `preambleLengthForSF()` threshold raised from `sf <= 8` to **`sf <= 9`** — SF9 now also gets the longer 32-symbol preamble instead of the 16-symbol one
 
 ---
 
-## 6. BME680 Sensor Telemetry Fix (`src/helpers/sensors/EnvironmentSensorManager.cpp`)
-- BME680 data moved to **telemetry channel 2** (`TELEM_CHANNEL_SELF+1`) so channel 1 remains free for MCU temperature
-- Gas resistance now reported in **kΩ** (÷1000) to fit within the signed 16-bit Cayenne LPP range
-
----
-
-## 7. Companion Radio — PSRAM Offline Queue + AGC Support (`examples/companion_radio/`)
-- Offline queue changed to **dynamic allocation** (`initOfflineQueue()`) — uses PSRAM on ESP32 for large queues
-- Added `AGC_RESET_INTERVAL` support (default 500 s), passed to radio wrapper
+## 6. Companion Radio — Offline Queue, AGC/Interference CLI Settings, UI (`examples/companion_radio/`)
+- Offline message queue changed to **dynamic PSRAM allocation** with a **circular buffer** (head-index based) — dequeuing a sent message is now O(1) instead of shifting the whole array
+- `agc_reset_interval` and `interference_threshold` prefs are now actually wired up and CLI-settable (previously `interference_threshold` was hardcoded to 0/disabled)
 - Device info response: `MAX_CONTACTS` capped correctly at 255 for the protocol byte
-- **UI** (`ui-orig`): status LED heartbeat cycle extended from 4 s → **400 s** (much less frequent flash)
+- **UI (`ui-orig`)**: status LED heartbeat cycle extended from 4 s → **400 s** (much less frequent flash)
+- **UI (`ui-new`), battery display**: battery percentage can now use a proper LiPo discharge-curve lookup (`BATT_CURVE_LIPO_4V2` / `BATT_CURVE_LIPO_4V4`) instead of a linear millivolt mapping, plus a percentage label is now drawn next to the battery icon
+- **UI (`ui-new`), display blanking**: pressing Enter on the home screen blanks the display to a minimal battery-percentage view (press any key to wake); both this view and normal home-screen rendering now periodically force a full e-ink refresh to prevent ghosting
+- **UI (`ui-new`), GPS prefs**: GPS enable/interval settings stored in `NodePrefs` are now applied to the sensor manager automatically at boot
+- **UI (`ui-new`), Morse code compose**: new `MORSE_COMPOSE_ENABLED` build flag adds a Morse-code channel messaging UI (double-click home screen → channel picker → Morse input screen) for screenless/low-UI devices — see section 9 (Heltec Mesh Pocket)
 
 ---
 
-## 8. Repeater — Blacklisting, Flood Filtering + Sydney Mesh Defaults (`examples/simple_repeater/`)
+## 7. E-Ink Display — Ghosting Prevention & Icon Scaling Fix (`src/helpers/ui/GxEPDDisplay.*`)
+- Added `setNextFrameFullRefresh()` to `DisplayDriver`/`GxEPDDisplay` so screens can request a full (deghosting) refresh instead of always using partial-window updates
+- `drawXbm()` icon scaling now uses a single uniform scale factor (the smaller of the x/y scale) so icons render square instead of stretched on displays with a non-uniform pixel aspect ratio
+
+---
+
+## 8. Repeater — Blacklisting, Flood Filtering, Advert Jail + Sydney Mesh Defaults (`examples/simple_repeater/`)
 
 ### Node/Channel Blacklisting
 - **New blacklist system** with two independent lists:
@@ -104,28 +106,21 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 - Persistent storage on filesystem; loaded on boot, saved on every change
 - **CLI commands**: `blacklist path|chan list|add|rem|clear [hex|#name[,...]]`
 
-### ~~Flood Request Rate Limiting~~ (Removed)
-- The upstream per-sender time-based rate limiting (`flood.req.max` / `flood.req.interval`) has been **removed from this fork**
-- The `isFloodReqBlocked()` call in `filterRecvFloodPacket` has been stripped — these prefs are stored and CLI-accessible for backward compatibility with existing repeaters but have no effect
-- To disable rate limiting on existing (unflashed) repeaters: `set flood.req.max 0`
-
 ### Flood Path Length Limiting
 - Flood-routed REQ, RESPONSE, and PATH packets are dropped if the number of hops exceeds a configurable limit
 - Default: **12 hops** (`set flood.path.max`), 0 = off
 
-### Advert Jail
-- Per-sender flood advert jail with **timestamp deduplication** — same advert arriving via different paths is not counted against the rate limit
-- Advert count capped at threshold to prevent unbounded growth
-- Jailed entries filtered from CLI replies
+### Advert Jail + Global Advert Rate Limit
+- **Per-sender advert jail**: tracks up to 128 senders by pubkey prefix; a sender that re-advertises faster than `advert.jail` hours accumulates strikes and is jailed (adverts dropped) once it reaches the strike threshold; strikes decay once the sender slows back down. Timestamp-deduplicated so the same advert arriving via multiple paths isn't double-counted
+- **Global flood advert rate limit** (`advert.ratelimit`): a simple minimum-interval gate on all incoming flood adverts, independent of sender
+- `jail` CLI command lists currently jailed senders with strike count and average advert interval
 
 ### Other Repeater Changes
-- **Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining))
-- CLI reply delay reduced: 600 ms → **300 ms**
-- Retry responses now send `"(retry)"` instead of silent empty string
-- Replay-attack path now sends an explicit `"(ERR: timestamp)"` error back to the client
-- CLI responses on flood packets use **`createPathReturn`**
+- **Command chaining**: multiple CLI commands (repeater and serial console) can be sent in a single message separated by semicolons — each is executed sequentially and responses are concatenated with semicolon delimiters
+- CLI responses on flood packets use **`createPathReturn`** to piggyback the reply on the PATH packet, falling back to a plain datagram if the response is too large
 - Added **CoreSense RTC sync**: `onAdvertRecv` override automatically syncs the repeater's RTC from any node advertising a name containing `"coresense"` (>2 s drift threshold) — keeps timestamps accurate without manual intervention
-- **Sydney Mesh common settings are now compile-time defaults** (via `[repeater_settings]`) — applied to any env that `extends = repeater_settings`, wired through the constructor `#ifdef` blocks:
+- `MAX_NEIGHBOURS` raised from 50 → **200** (and from a commented-out 50 → 100 on a couple of disabled envs) across nearly every repeater variant
+- **Sydney Mesh common settings are now compile-time defaults** (via `[repeater_settings]`) — applied to any env that `extends = ..., repeater_settings`, wired through the constructor's `#ifdef` blocks:
 
 | Setting | Value | Equivalent CLI command |
 |---|---|---|
@@ -142,35 +137,45 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 
 ---
 
-## 9. Room Server — CoreSense RTC Sync + Idle Push Mode (`examples/simple_room_server/`)
+## 9. Heltec Mesh Pocket — Morse Code Messaging Variant (`variants/mesh_pocket/`)
+- New **`MorseScreen`** / **`MorseChannelPicker`** UI (behind `MORSE_COMPOSE_ENABLED`, enabled by default for this variant) lets a screenless-style device compose and send channel messages using the hardware button as a Morse key, and shows incoming channel messages in a simple inbox — see `variants/mesh_pocket/Morse_Compose_Guide.md` for the input pattern
+- `getBattMilliVolts()` now averages 8 ADC samples and uses a corrected divider ratio (4.96 vs 4.9) for a more accurate battery reading
+- SoftDevice bumped from s140 6.1.1 → **7.3.0**
+- Preamble length fixed at 32 symbols (`LORA_PREAMBLE_LEN`) explicitly applied after radio init
+- `MAX_NEIGHBOURS` raised to 200, `MAX_CONTACTS` raised to 600 with a 500-contact SRAM fallback
+
+---
+
+## 10. Room Server — CoreSense RTC Sync + Idle Push Mode (`examples/simple_room_server/`)
 - Added **`onAdvertRecv` override**: automatically syncs RTC from any node advertising a name containing `"coresense"` (>2 s drift threshold)
 - Push polling loop now has an **idle mode** (10 s interval) when a full client round-robin completes with no pending work — reduces unnecessary radio activity
 
 ---
 
-## 10. Sensor Node — CLI Path-Return (`examples/simple_sensor/`)
-- CLI responses on flood-routed packets now use `createPathReturn` (consistent with other node types)
+## 11. Sensor Node — CLI Path-Return (`examples/simple_sensor/`)
+- CLI responses on flood-routed packets now use `createPathReturn` (consistent with other node types), falling back to a plain datagram if the response doesn't fit
 
 ---
 
-## 11. Variant Configuration Updates
+## 12. Variant Configuration Updates
+
+Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump described in section 8, and every variant inherits the global LoRa frequency/bandwidth/SF/CR change from section 1. Notable additional per-variant changes:
 
 | Variant | Changes |
 |---|---|
-| **Heltec V4** | BME680/INA3221 sensor enables; `SX126X_REGISTER_PATCH=1` for improved AGC; `RSSI_OFFSET=-17` (GC1109 LNA); `DEFAULT_POWERSAVING_ENABLED=1`; repeater name → "Heltec V4 Repeater"; **offline message queue: 1024** (companion radio builds); **contacts: 5000** (OLED companion) / **4000** (TFT companion) / 600 (terminal chat) |
-| **Heltec V3** | TX LED disabled; WiFi companion MAX_CONTACTS/OFFLINE_QUEUE_SIZE adjustments |
-| **Station G2** | `SX126X_RX_BOOSTED_GAIN=1` (with warning); BLE variant: `BLE_TX_POWER=7`; MAX_CONTACTS 600 |
-| **RAK4631** | Repeater now inherits from `[repeater_settings]` |
-| **RAK WisMesh Tag** | MAX_CONTACTS → 500 |
-| **T1000-E** | MAX_CONTACTS → 500 |
-| **XIAO nRF52** | Repeater now inherits from `[repeater_settings]` |
+| **Heltec V4** | BME680/INA3221 sensor enables (other env sensors disabled); `SX126X_REGISTER_PATCH=1` for improved AGC/RX sensitivity; `RSSI_OFFSET=-17` (GC1109 LNA); `DEFAULT_POWERSAVING_ENABLED=1`; repeater name → "Heltec V4 Repeater"; **offline message queue: 1024** (companion radio builds); **contacts: 5000** (OLED companion) / **4000** (TFT companion) / 600 (terminal chat / bridge) |
+| **Heltec V3** | TX status LED disabled (`P_LORA_TX_LED` commented out); WiFi companion no longer overrides `OFFLINE_QUEUE_SIZE` (falls back to the base default) |
+| **Station G2** | `SX126X_RX_BOOSTED_GAIN` now defaults to **1** (was 0 — upstream explicitly recommends 0 for this board due to RF performance in dense/high-noise areas); BLE companion: `BLE_TX_POWER=7`, `MAX_CONTACTS` → 600 |
+| **RAK4631 / XIAO nRF52** | Repeater envs now `extends = ..., repeater_settings` to pick up the Sydney Mesh defaults |
+| **RAK WisMesh Tag** | `MAX_CONTACTS` → 500 (USB companion) / 600 (BLE companion) |
+| **T1000-E** | `MAX_CONTACTS` → 500 |
 | **XIAO S3 WIO** | `ESP32_CPU_FREQ=80` added |
-| **LilyGo T-Echo Lite** | **Battery**: Added `PIN_VBAT_MEAS_EN` (P0.31) — gated voltage divider must be enabled before ADC read; `pinMode(PIN_VBAT_READ, INPUT)` reclaims P0.02; 8-sample averaging with LilyGo's exact voltage formula. **I2C**: Corrected SDA/SCL from P0.04/P0.02 → P1.04/P1.02 (per LilyGo `IIC_1_SDA`/`IIC_1_SCL`). **GPS**: Corrected all five pin assignments (TX, RX, EN, Standby, PPS) to match LilyGo's `t_echo_lite_config.h`. **SPI**: Fixed `SPI_INTERFACES_COUNT` from `_PINNUM(0,2)` → `(2)`. **Headless builds**: Added `LilyGo_T-Echo-Lite-Core` base config and `_repeater` / `_companion_radio_ble` environments for screenless variants (strips display flags, source files, and GxEPD2 dependency). |
+| **LilyGo T-Echo Lite** | Added a **headless (screenless) "Core" build family** — `LilyGo_T-Echo-Lite-Core` base env plus `_repeater` and `_companion_radio_ble` variants that drop the display/GxEPD2 dependency for cost-reduced or enclosure-only builds |
 
 ---
 
-## 12. `.gitignore`
-- Added build output directories and local build scripts to ignore list
+## 13. `.gitignore`
+- Added build output directories and local build scripts (`build_and_organize_all.bat/.ps1`, `build_firmware.bat/.ps1`, test build output) to the ignore list
 
 MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
 
