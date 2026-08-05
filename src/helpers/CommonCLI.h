@@ -71,6 +71,7 @@ public:
   uint8_t advert_jail = 0;        // hours, 0 = off. Per-sender flood advert jail interval
   uint8_t flood_path_max = 0;     // max path hops for flood REQ/RESPONSE/PATH, 0 = off. Default 12.
   uint8_t cad_enabled = 0;      // hardware Channel Activity Detection before TX (boolean)
+  uint8_t extra_sf[4];
 
 private:
   class RadioPrefs : public ConfigSerializer {
@@ -247,6 +248,12 @@ public:
   virtual bool setRxBoostedGain(bool enable) {
     return false; // CommonCLI reports unsupported if not overridden by wrapper
   };
+
+  #if defined(USE_LR2021)
+  virtual bool configSideDetectors(const uint8_t sideDetSFs[], uint8_t num, float bw) {
+    return false; // Override in wrapper
+  } 
+  #endif
 };
 
 class CommonCLI {
