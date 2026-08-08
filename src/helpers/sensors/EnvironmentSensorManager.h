@@ -19,6 +19,10 @@ protected:
   int          _active_sensor_count = 0;
   uint8_t      next_available_channel = TELEM_CHANNEL_SELF + 1;
 
+  // Set by getBackupBattReadings() when a sensor's reading was reported on TELEM_CHANNEL_SELF
+  // instead, so querySensors() can skip re-reporting that same sensor on its own channel.
+  bool         ina219_used_for_self = false;
+
   bool     gps_detected = false;
   bool     gps_active = false;
   uint32_t gps_update_interval_sec = 1;
@@ -43,6 +47,7 @@ public:
   #endif
   bool begin() override;
   bool querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) override;
+  bool getBackupBattReadings(float& volts, float& current, float& power) override;
   #if ENV_INCLUDE_GPS || defined(ENV_INCLUDE_BME680_BSEC)
   void loop() override;
   #endif

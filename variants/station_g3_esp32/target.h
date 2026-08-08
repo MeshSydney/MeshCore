@@ -1,5 +1,7 @@
 #pragma once
 
+#define ALLOWED_REPEAT_FREQ_RANGE { 915000, 928000 }
+
 #define RADIOLIB_STATIC_ONLY 1
 #include <RadioLib.h>
 #include <helpers/radiolib/RadioLibWrappers.h>

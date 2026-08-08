@@ -116,6 +116,7 @@ static Adafruit_INA3221 INA3221;
 #endif
 #include <Adafruit_INA219.h>
 static Adafruit_INA219 INA219(TELEM_INA219_ADDRESS);
+static bool ina219_active = false;
 #endif
 
 #if ENV_INCLUDE_INA260
@@ -377,7 +378,8 @@ static void query_ina3221(uint8_t ch, uint8_t sub_ch, CayenneLPP& lpp) {
 #if ENV_INCLUDE_INA219
 static uint8_t init_ina219(TwoWire* wire, uint8_t) {
   // INA219 static instance was constructed with the address; begin() uses it.
-  return INA219.begin(wire) ? 1 : 0;
+  ina219_active = INA219.begin(wire);
+  return ina219_active ? 1 : 0;
 }
 static void query_ina219(uint8_t ch, uint8_t, CayenneLPP& lpp) {
   lpp.addVoltage(ch, INA219.getBusVoltage_V());
@@ -664,6 +666,19 @@ bool EnvironmentSensorManager::begin() {
 // initialized.
 // ============================================================
 
+bool EnvironmentSensorManager::getBackupBattReadings(float& volts, float& current, float& power) {
+#if ENV_INCLUDE_INA219
+  if (ina219_active) {
+    volts = INA219.getBusVoltage_V();
+    current = INA219.getCurrent_mA() / 1000.0f;
+    power = INA219.getPower_mW() / 1000.0f;
+    ina219_used_for_self = true; // querySensors() must skip re-reporting this on its own channel
+    return true;
+  }
+#endif
+  return false;
+}
+
 bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, CayenneLPP& telemetry) {
   next_available_channel = TELEM_CHANNEL_SELF + 1;
 
@@ -673,10 +688,14 @@ bool EnvironmentSensorManager::querySensors(uint8_t requester_permissions, Cayen
 
   if (requester_permissions & TELEM_PERM_ENVIRONMENT) {
     for (int i = 0; i < _active_sensor_count; i++) {
+#if ENV_INCLUDE_INA219
+      if (ina219_used_for_self && _active_sensors[i].query == query_ina219) continue; // already reported on TELEM_CHANNEL_SELF
+#endif
       _active_sensors[i].query(next_available_channel, _active_sensors[i].sub_channel, telemetry);
       next_available_channel++;
     }
   }
+  ina219_used_for_self = false; // only applies to this one telemetry response
 
   return true;
 }

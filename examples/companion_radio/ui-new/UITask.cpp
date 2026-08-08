@@ -207,7 +207,7 @@ class HomeScreen : public UIScreen {
     if (millis() > next_sensors_refresh) {
       sensors_lpp.reset();
       sensors_nb = 0;
-      sensors_lpp.addVoltage(TELEM_CHANNEL_SELF, (float)board.getBattMilliVolts() / 1000.0f);
+      sensors.addSelfPower(sensors_lpp, board.getBattMilliVolts());
       sensors.querySensors(0xFF, sensors_lpp);
       LPPReader reader (sensors_lpp.getBuffer(), sensors_lpp.getSize());
       uint8_t channel, type;
