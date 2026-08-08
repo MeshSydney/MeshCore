@@ -33,7 +33,7 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 | `blacklist chan rem <hex\|#name>[,...]` | Remove channel blacklist entry(ies) |
 | `blacklist chan clear` | Clear all channel blacklist entries |
 
-**Command chaining**: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining)).
+**Command chaining** *(repeater firmware only — not implemented in companion radio, room server, or sensor node)*: multiple CLI commands can be sent in a single message separated by semicolons — each command is executed sequentially and responses are concatenated with semicolon delimiters (see [CLI Commands docs](docs/cli_commands.md#command-chaining)).
 
 ---
 
@@ -42,7 +42,7 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 - **Bandwidth changed** from 62.5 kHz → **125 kHz**
 - **Spreading factor changed** from SF8 → **SF9**
 - `LORA_CR` now set explicitly to **5** (same value as upstream's implicit default)
-- Added a shared `[repeater_settings]` PlatformIO config section so Sydney Mesh's repeater defaults (see section 8) don't need to be duplicated across every variant — envs opt in with `extends = <board>, repeater_settings`
+- Added a shared `[repeater_settings]` PlatformIO config section so Sydney Mesh's repeater defaults (see section 9) don't need to be duplicated across every variant — envs opt in with `extends = <board>, repeater_settings`
 
 ---
 
@@ -77,7 +77,14 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 
 ---
 
-## 6. Companion Radio — Offline Queue, AGC/Interference CLI Settings, UI (`examples/companion_radio/`)
+## 6. Telemetry — Backup Battery/Power Sensor Fallback (`src/helpers/SensorManager.h`, `EnvironmentSensorManager.*`)
+- New `SensorManager::getSelfMilliVolts()` / `addSelfPower()` helpers: when a board's own ADC reports no battery voltage (`getBattMilliVolts() == 0` — e.g. the Station G3 ESP32, which always returns 0), the reported/telemetry "self" voltage now falls back to a board-provided `getBackupBattReadings()` sensor reading instead of just reporting 0
+- `EnvironmentSensorManager` implements this fallback using the **INA219** power monitor (enabled by default via `[sensor_base]`); when used as the fallback, voltage/current/power are reported on `TELEM_CHANNEL_SELF` and the INA219's own telemetry channel is skipped in that response to avoid double-reporting the same reading
+- Wired into every node type that previously called `board.getBattMilliVolts()` directly: companion radio (battery/storage frame, stats frame, telemetry request, contact-request telemetry, `ui-new`/`ui-tiny` home screen), repeater (`REQ_TYPE_GET_STATUS`, telemetry request), room server (`REQ_TYPE_GET_STATUS`, telemetry request), and sensor node (telemetry request, periodic sensor read)
+
+---
+
+## 7. Companion Radio — Offline Queue, AGC/Interference CLI Settings, UI (`examples/companion_radio/`)
 - Offline message queue changed to **dynamic PSRAM allocation** with a **circular buffer** (head-index based) — dequeuing a sent message is now O(1) instead of shifting the whole array
 - `agc_reset_interval` and `interference_threshold` prefs are now actually wired up and CLI-settable (previously `interference_threshold` was hardcoded to 0/disabled)
 - Device info response: `MAX_CONTACTS` capped correctly at 255 for the protocol byte
@@ -85,17 +92,17 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 - **UI (`ui-new`), battery display**: battery percentage can now use a proper LiPo discharge-curve lookup (`BATT_CURVE_LIPO_4V2` / `BATT_CURVE_LIPO_4V4`) instead of a linear millivolt mapping, plus a percentage label is now drawn next to the battery icon
 - **UI (`ui-new`), display blanking**: pressing Enter on the home screen blanks the display to a minimal battery-percentage view (press any key to wake); both this view and normal home-screen rendering now periodically force a full e-ink refresh to prevent ghosting
 - **UI (`ui-new`), GPS prefs**: GPS enable/interval settings stored in `NodePrefs` are now applied to the sensor manager automatically at boot
-- **UI (`ui-new`), Morse code compose**: new `MORSE_COMPOSE_ENABLED` build flag adds a Morse-code channel messaging UI (double-click home screen → channel picker → Morse input screen) for screenless/low-UI devices — see section 9 (Heltec Mesh Pocket)
+- **UI (`ui-new`), Morse code compose**: new `MORSE_COMPOSE_ENABLED` build flag adds a Morse-code channel messaging UI (double-click home screen → channel picker → Morse input screen) for screenless/low-UI devices — see section 10 (Heltec Mesh Pocket)
 
 ---
 
-## 7. E-Ink Display — Ghosting Prevention & Icon Scaling Fix (`src/helpers/ui/GxEPDDisplay.*`)
+## 8. E-Ink Display — Ghosting Prevention & Icon Scaling Fix (`src/helpers/ui/GxEPDDisplay.*`)
 - Added `setNextFrameFullRefresh()` to `DisplayDriver`/`GxEPDDisplay` so screens can request a full (deghosting) refresh instead of always using partial-window updates
 - `drawXbm()` icon scaling now uses a single uniform scale factor (the smaller of the x/y scale) so icons render square instead of stretched on displays with a non-uniform pixel aspect ratio
 
 ---
 
-## 8. Repeater — Blacklisting, Flood Filtering, Advert Jail + Sydney Mesh Defaults (`examples/simple_repeater/`)
+## 9. Repeater — Blacklisting, Flood Filtering, Advert Jail + Sydney Mesh Defaults (`examples/simple_repeater/`)
 
 ### Node/Channel Blacklisting
 - **New blacklist system** with two independent lists:
@@ -137,7 +144,7 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 
 ---
 
-## 9. Heltec Mesh Pocket — Morse Code Messaging Variant (`variants/mesh_pocket/`)
+## 10. Heltec Mesh Pocket — Morse Code Messaging Variant (`variants/mesh_pocket/`)
 - New **`MorseScreen`** / **`MorseChannelPicker`** UI (behind `MORSE_COMPOSE_ENABLED`, enabled by default for this variant) lets a screenless-style device compose and send channel messages using the hardware button as a Morse key, and shows incoming channel messages in a simple inbox — see `variants/mesh_pocket/Morse_Compose_Guide.md` for the input pattern
 - `getBattMilliVolts()` now averages 8 ADC samples and uses a corrected divider ratio (4.96 vs 4.9) for a more accurate battery reading
 - SoftDevice bumped from s140 6.1.1 → **7.3.0**
@@ -146,26 +153,27 @@ All `set`/`get` commands below are available on all node types (repeater, compan
 
 ---
 
-## 10. Room Server — CoreSense RTC Sync + Idle Push Mode (`examples/simple_room_server/`)
+## 11. Room Server — CoreSense RTC Sync + Idle Push Mode (`examples/simple_room_server/`)
 - Added **`onAdvertRecv` override**: automatically syncs RTC from any node advertising a name containing `"coresense"` (>2 s drift threshold)
 - Push polling loop now has an **idle mode** (10 s interval) when a full client round-robin completes with no pending work — reduces unnecessary radio activity
 
 ---
 
-## 11. Sensor Node — CLI Path-Return (`examples/simple_sensor/`)
+## 12. Sensor Node — CLI Path-Return (`examples/simple_sensor/`)
 - CLI responses on flood-routed packets now use `createPathReturn` (consistent with other node types), falling back to a plain datagram if the response doesn't fit
 
 ---
 
-## 12. Variant Configuration Updates
+## 13. Variant Configuration Updates
 
-Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump described in section 8, and every variant inherits the global LoRa frequency/bandwidth/SF/CR change from section 1. Notable additional per-variant changes:
+Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump described in section 9, and every variant inherits the global LoRa frequency/bandwidth/SF/CR change from section 1. Notable additional per-variant changes:
 
 | Variant | Changes |
 |---|---|
-| **Heltec V4** | BME680/INA3221 sensor enables (other env sensors disabled); `SX126X_REGISTER_PATCH=1` for improved AGC/RX sensitivity; `RSSI_OFFSET=-17` (GC1109 LNA); `DEFAULT_POWERSAVING_ENABLED=1`; repeater name → "Heltec V4 Repeater"; **offline message queue: 1024** (companion radio builds); **contacts: 5000** (OLED companion) / **4000** (TFT companion) / 600 (terminal chat / bridge) |
+| **Heltec V4** | BME680/INA3221 sensor enables (other env sensors disabled); `SX126X_REGISTER_PATCH=1` for improved AGC/RX sensitivity; `RSSI_OFFSET=-17` (GC1109 LNA); `DEFAULT_POWERSAVING_ENABLED=1`; `ALLOWED_REPEAT_FREQ_RANGE` restricted to 902–928 MHz; repeater name → "Heltec V4 Repeater"; **offline message queue: 1024** (companion radio builds); **contacts: 5000** (OLED companion) / **4000** (TFT companion) / 600 (terminal chat / bridge) |
 | **Heltec V3** | TX status LED disabled (`P_LORA_TX_LED` commented out); WiFi companion no longer overrides `OFFLINE_QUEUE_SIZE` (falls back to the base default) |
 | **Station G2** | `SX126X_RX_BOOSTED_GAIN` now defaults to **1** (was 0 — upstream explicitly recommends 0 for this board due to RF performance in dense/high-noise areas); BLE companion: `BLE_TX_POWER=7`, `MAX_CONTACTS` → 600 |
+| **Station G3 ESP32** | `board_build.partitions = default_16MB.csv` set explicitly (the board JSON omits it; without this, PlatformIO silently falls back to a 1.25 MB app partition on this 16 MB-flash board); `ALLOWED_REPEAT_FREQ_RANGE` restricted to 915–928 MHz; **offline message queue: 1024**, **contacts: 5000**, **channels: 100** (companion radio builds); this board's `getBattMilliVolts()` always returns 0, so it relies on the INA219 fallback described in section 6 |
 | **RAK4631 / XIAO nRF52** | Repeater envs now `extends = ..., repeater_settings` to pick up the Sydney Mesh defaults |
 | **RAK WisMesh Tag** | `MAX_CONTACTS` → 500 (USB companion) / 600 (BLE companion) |
 | **T1000-E** | `MAX_CONTACTS` → 500 |
@@ -174,7 +182,7 @@ Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump des
 
 ---
 
-## 13. `.gitignore`
+## 14. `.gitignore`
 - Added build output directories and local build scripts (`build_and_organize_all.bat/.ps1`, `build_firmware.bat/.ps1`, test build output) to the ignore list
 
 MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
