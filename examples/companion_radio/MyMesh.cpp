@@ -280,7 +280,7 @@ int MyMesh::getAGCResetInterval() const {
   return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
 }
 bool MyMesh::getCADEnabled() const {
-  return true; // hardware CAD before TX (no CLI toggle on companion; enabled by default)
+  return false; // hardware CAD before TX (disabled by default, until configurable)
 }
 
 int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
