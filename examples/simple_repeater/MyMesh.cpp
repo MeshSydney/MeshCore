@@ -218,7 +218,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
 
   if (payload[0] == REQ_TYPE_GET_STATUS) {  // guests can also access this now
     RepeaterStats stats;
-    stats.batt_milli_volts = board.getBattMilliVolts();
+    stats.batt_milli_volts = sensors.getSelfMilliVolts(board.getBattMilliVolts());
     stats.curr_tx_queue_len = _mgr->getOutboundTotal();
     stats.noise_floor = (int16_t)_radio->getNoiseFloor();
     stats.last_rssi = (int16_t)radio_driver.getLastRSSI();
