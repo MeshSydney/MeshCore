@@ -65,6 +65,7 @@ public:
   char owner_info[120];
   uint8_t rx_boosted_gain = 0; // power settings
   uint8_t radio_fem_rxgain = 0; // LoRa FEM RX gain setting
+  uint8_t radio_fem_txgain = 0; // LoRa FEM TX gain setting
   uint8_t path_hash_mode = 0;   // which path mode to use when sending
   uint8_t loop_detect = 0;
   uint16_t advert_ratelimit = 0; // seconds, 0 = off. Rate limit for incoming flood adverts
@@ -85,7 +86,8 @@ private:
       def("cad", _parent->cad_enabled);
       def("int_thr", _parent->interference_threshold);
       def("rxgain", _parent->rx_boosted_gain);
-      def("fem_rxgain", _parent->rx_boosted_gain);
+      def("fem_rxgain", _parent->radio_fem_rxgain);
+      def("fem_txgain", _parent->radio_fem_txgain);
       def("tx", _parent->tx_power_dbm);
       def("af", _parent->airtime_factor);
       def("rxdelay", _parent->rx_delay_base);
