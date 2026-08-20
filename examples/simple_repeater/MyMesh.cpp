@@ -344,7 +344,7 @@ int MyMesh::handleRequest(ClientInfo *sender, uint32_t sender_timestamp, uint8_t
       int results_offset = 0;
       uint8_t results_buffer[130];
       for(int index = 0; index < count && index + offset < neighbours_count; index++){
-        
+
         // stop if we can't fit another entry in results
         int entry_size = pubkey_prefix_length + 4 + 1;
         if(results_offset + entry_size > sizeof(results_buffer)){
@@ -1428,7 +1428,8 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.advert_jail = 12; // 12 hours
   _prefs.flood_path_max = DEFAULT_FLOOD_PATH_MAX; // default 12
   _prefs.cad_enabled = 0;            // hardware CAD before TX (off by default; 'set cad on')
-  
+  _prefs.loop_detect = LOOP_DETECT_MINIMAL;
+
   // compile-time overrides from [repeater_settings] / platformio.ini
 #ifdef REPEATER_TX_DELAY
   _prefs.tx_delay_factor = REPEATER_TX_DELAY;
@@ -1785,7 +1786,7 @@ void MyMesh::formatRadioStatsReply(char *reply) {
 }
 
 void MyMesh::formatPacketStatsReply(char *reply) {
-  StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(), 
+  StatsFormatHelper::formatPacketStats(reply, radio_driver, getNumSentFlood(), getNumSentDirect(),
                                        getNumRecvFlood(), getNumRecvDirect());
 }
 
