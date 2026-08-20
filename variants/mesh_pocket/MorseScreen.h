@@ -392,7 +392,7 @@ public:
     display.setTextSize(1);
 
     // ---- Header --------------------------------------------------------------
-    display.setColor(DisplayDriver::YELLOW);
+    display.setColor(UIColor::warning_txt);
     display.setCursor(0, 0);
     char hdr[40];
     snprintf(hdr, sizeof(hdr), "MORSE > %s", _channelName);
@@ -400,7 +400,7 @@ public:
 
     // Show armed hold action in header
     if (_holdAction != HOLD_NONE) {
-      display.setColor(DisplayDriver::GREEN);
+      display.setColor(UIColor::title_txt);
       const char* action =
         _holdAction == HOLD_BACKSPACE ? "[BKSP]" :
         _holdAction == HOLD_SEND     ? "[SEND]" :
@@ -408,15 +408,15 @@ public:
       display.drawTextRightAlign(W - 1, 0, action);
     }
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::secondary_txt);
     display.drawRect(0, 11, W, 1);
 
     // ---- Inbox (last 2 messages) ---------------------------------------------
-    display.setColor(DisplayDriver::GREEN);
+    display.setColor(UIColor::title_txt);
     display.setCursor(0, 13);
     display.print("IN");
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::secondary_txt);
     if (_inboxCount == 0) {
       display.setCursor(18, 13);
       display.print("(no messages)");
@@ -435,11 +435,11 @@ public:
     display.drawRect(0, 33, W, 1);
 
     // ---- Outgoing buffer -----------------------------------------------------
-    display.setColor(DisplayDriver::GREEN);
+    display.setColor(UIColor::title_txt);
     display.setCursor(0, 35);
     display.print("OUT");
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::secondary_txt);
     char outWithCursor[MORSE_OUT_BUF_LEN + 2];
     if (_outLen == 0) {
       strcpy(outWithCursor, "_");
@@ -462,25 +462,25 @@ public:
     // Any CRC change triggers a 644ms e-ink block that eats button presses.
     // Only hold actions (3s+) change the display here — by then the user has
     // stopped rapid-pressing so one render block is harmless.
-    display.setColor(DisplayDriver::GREEN);
+    display.setColor(UIColor::title_txt);
     display.setCursor(0, 68);
     display.print("KEY");
 
     display.setCursor(26, 68);
     if (_holdAction != HOLD_NONE) {
-      display.setColor(DisplayDriver::YELLOW);
+      display.setColor(UIColor::warning_txt);
       const char* action =
         _holdAction == HOLD_BACKSPACE ? "[BKSP]" :
         _holdAction == HOLD_SEND     ? "[SEND]" :
                                        "[EXIT]";
       display.print(action);
     } else {
-      display.setColor(DisplayDriver::LIGHT);
+      display.setColor(UIColor::secondary_txt);
       display.print("ready");
     }
 
     // Character count (right-aligned, same line)
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::secondary_txt);
     char ccBuf[12];
     snprintf(ccBuf, sizeof(ccBuf), "%u/%u", (unsigned)_outLen,
              (unsigned)(MORSE_OUT_BUF_LEN - 1));
@@ -567,21 +567,21 @@ public:
     const int W = display.width();
 
     display.setTextSize(1);
-    display.setColor(DisplayDriver::YELLOW);
+    display.setColor(UIColor::warning_txt);
     display.setCursor(0, 0);
     display.print("SELECT CHANNEL");
 
-    display.setColor(DisplayDriver::LIGHT);
+    display.setColor(UIColor::secondary_txt);
     display.drawRect(0, 11, W, 1);
 
     int y = 16;
     for (uint8_t i = 0; i < _numChannels; i++) {
       if (i == _highlighted) {
-        display.setColor(DisplayDriver::DARK);
+        display.setColor(UIColor::popup_bkg);
         display.fillRect(0, y - 1, W, 12);
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::popup_txt);
       } else {
-        display.setColor(DisplayDriver::LIGHT);
+        display.setColor(UIColor::secondary_txt);
       }
       char line[40];
       snprintf(line, sizeof(line), "  %s", _channels[i].name);
