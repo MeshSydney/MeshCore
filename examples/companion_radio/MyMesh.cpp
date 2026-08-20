@@ -227,7 +227,6 @@ void MyMesh::initOfflineQueue() {
   }
   offline_queue_max = OFFLINE_QUEUE_SIZE;
   offline_queue_head = 0;
-  offline_queue_read_pos = 0;
 }
 
 void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
@@ -247,8 +246,6 @@ void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
         int tail = (offline_queue_head + offline_queue_len - 1) % offline_queue_max;
         offline_queue[tail].len = len;
         memcpy(offline_queue[tail].buf, frame, len);
-        // an evicted msg before the read cursor shifts the cursor back by one
-        if (i < offline_queue_read_pos) offline_queue_read_pos--;
         return;
       }
     }
@@ -261,19 +258,15 @@ void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
   }
 }
 
-// Non-destructive read: advances the per-session cursor only, so switching to a
-// different companion app (which resets the cursor on CMD_APP_START) can still
-// retrieve messages already delivered to a previous app. Entries are only ever
-// actually removed from the buffer by addToOfflineQueue() when space is needed.
 int MyMesh::getFromOfflineQueue(uint8_t frame[]) {
-  if (offline_queue_read_pos < offline_queue_len) {
-    int idx = (offline_queue_head + offline_queue_read_pos) % offline_queue_max;
-    size_t len = offline_queue[idx].len;
-    memcpy(frame, offline_queue[idx].buf, len);
-    offline_queue_read_pos++;
+  if (offline_queue_len > 0) {                                    // check offline queue
+    size_t len = offline_queue[offline_queue_head].len;           // take from head
+    memcpy(frame, offline_queue[offline_queue_head].buf, len);
+    offline_queue_head = (offline_queue_head + 1) % offline_queue_max;  // advance head (O(1))
+    offline_queue_len--;
     return len;
   }
-  return 0; // no more unread messages for this session
+  return 0; // queue is empty
 }
 
 float MyMesh::getAirtimeBudgetFactor() const {
@@ -493,7 +486,7 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
   // we only want to show text messages on display, not cli data
   bool should_display = txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN;
   if (should_display && _ui) {
-    _ui->newMsg(path_len, from.name, text, offline_queue_len - offline_queue_read_pos);
+    _ui->newMsg(path_len, from.name, text, offline_queue_len);
     if (!_serial->isConnected()) {
       _ui->notify(UIEventType::contactMessage);
     }
@@ -610,7 +603,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   if (getChannel(channel_idx, channel_details)) {
     channel_name = channel_details.name;
   }
-  if (_ui) _ui->newMsg(path_len, channel_name, text, offline_queue_len - offline_queue_read_pos);
+  if (_ui) _ui->newMsg(path_len, channel_name, text, offline_queue_len);
 #endif
 }
 
@@ -892,7 +885,6 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _cli_rescue = false;
   offline_queue_len = 0;
   offline_queue_max = 0;
-  offline_queue_read_pos = 0;
   offline_queue = nullptr;
   app_target_ver = 0;
   clearPendingReqs();
@@ -1079,7 +1071,6 @@ void MyMesh::handleCmdFrame(size_t len) {
     cmd_frame[len] = 0; // make app_name null terminated
     MESH_DEBUG_PRINTLN("App %s connected", app_name);
 
-    offline_queue_read_pos = 0;  // new app session -- re-deliver any still-buffered offline msgs
     _iter_started = false; // stop any left-over ContactsIterator
     int i = 0;
     out_frame[i++] = RESP_CODE_SELF_INFO;
@@ -1405,7 +1396,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if ((out_len = getFromOfflineQueue(out_frame)) > 0) {
       _serial->writeFrame(out_frame, out_len);
 #ifdef DISPLAY_CLASS
-      if (_ui) _ui->msgRead(offline_queue_len - offline_queue_read_pos);
+      if (_ui) _ui->msgRead(offline_queue_len);
 #endif
     } else {
       out_frame[0] = RESP_CODE_NO_MORE_MESSAGES;
