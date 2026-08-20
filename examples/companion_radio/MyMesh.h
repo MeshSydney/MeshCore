@@ -250,6 +250,7 @@ private:
   int offline_queue_head;  // circular buffer head index
   int offline_queue_len;
   int offline_queue_max;
+  int offline_queue_read_pos;  // how many queued msgs delivered to current app session (not yet evicted)
   Frame* offline_queue;
 
   struct AckTableEntry {
