@@ -1,0 +1,13 @@
+﻿diff --git a/src/Dispatcher.cpp b/src/Dispatcher.cpp
+index c0610b7f..7631a73d 100644
+--- a/src/Dispatcher.cpp
++++ b/src/Dispatcher.cpp
+@@ -331,7 +331,7 @@ void Dispatcher::checkSend() {
+         MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): ERROR: send start failed!", getLogDateTime());
+ 
+         logTxFail(outbound, outbound->getRawLength());
+-  
++
+         releasePacket(outbound);  // return to pool
+         outbound = NULL;
+         return;

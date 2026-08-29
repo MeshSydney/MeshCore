@@ -1,0 +1,20 @@
+﻿ examples/simple_repeater/MyMesh.cpp              | 714 ++++++++++++++++++++++-
+ examples/simple_repeater/MyMesh.h                |  59 ++
+ examples/simple_repeater/main.cpp                |  41 +-
+ src/Dispatcher.cpp                               |   2 +-
+ src/helpers/BaseChatMesh.cpp                     |  80 ++-
+ src/helpers/BaseChatMesh.h                       |  26 +-
+ src/helpers/BaseSerialInterface.h                |   6 +
+ src/helpers/CommonCLI.cpp                        |  54 +-
+ src/helpers/CommonCLI.h                          |   9 +
+ src/helpers/SensorManager.h                      |  31 +
+ src/helpers/esp32/SerialBLEInterface.cpp         |  89 ++-
+ src/helpers/esp32/SerialBLEInterface.h           |  13 +
+ src/helpers/radiolib/CustomSX1262Wrapper.h       |  10 +-
+ src/helpers/radiolib/RadioLibWrappers.h          |   2 +-
+ src/helpers/sensors/EnvironmentSensorManager.cpp |  21 +-
+ src/helpers/sensors/EnvironmentSensorManager.h   |   5 +
+ src/helpers/ui/DisplayDriver.h                   |   1 +
+ src/helpers/ui/GxEPDDisplay.cpp                  |  58 +-
+ src/helpers/ui/GxEPDDisplay.h                    |   2 +
+ 19 files changed, 1140 insertions(+), 83 deletions(-)

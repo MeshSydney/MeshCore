@@ -1,0 +1,127 @@
+﻿diff --git a/src/helpers/CommonCLI.cpp b/src/helpers/CommonCLI.cpp
+index b318bb58..836b6a09 100644
+--- a/src/helpers/CommonCLI.cpp
++++ b/src/helpers/CommonCLI.cpp
+@@ -97,12 +97,15 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy
+     file.read((uint8_t *)&_prefs->discovery_mod_timestamp, sizeof(_prefs->discovery_mod_timestamp)); // 162
+     file.read((uint8_t *)&_prefs->adc_multiplier, sizeof(_prefs->adc_multiplier));                 // 166
+     file.read((uint8_t *)_prefs->owner_info, sizeof(_prefs->owner_info));                          // 170
+-    file.read((uint8_t *)&_prefs->rx_boosted_gain, sizeof(_prefs->rx_boosted_gain));               // 290
+-    file.read((uint8_t *)&_prefs->flood_max_unscoped, sizeof(_prefs->flood_max_unscoped));         // 291
+-    file.read((uint8_t *)&_prefs->flood_max_advert, sizeof(_prefs->flood_max_advert));             // 292
+-    file.read((uint8_t *)&_prefs->radio_fem_rxgain, sizeof(_prefs->radio_fem_rxgain));             // 293
+-    file.read((uint8_t *)&_prefs->cad_enabled, sizeof(_prefs->cad_enabled));                       // 294
+-    // next: 295
++    file.read((uint8_t *)&_prefs->rx_boosted_gain, sizeof(_prefs->rx_boosted_gain));              // 290
++    file.read((uint8_t *)&_prefs->advert_ratelimit, sizeof(_prefs->advert_ratelimit));              // 291
++    file.read((uint8_t *)&_prefs->advert_jail, sizeof(_prefs->advert_jail));                        // 293
++    file.read((uint8_t *)&_prefs->flood_path_max, sizeof(_prefs->flood_path_max));                  // 294
++    file.read((uint8_t *)&_prefs->flood_max_unscoped, sizeof(_prefs->flood_max_unscoped));          // 295
++    file.read((uint8_t *)&_prefs->flood_max_advert, sizeof(_prefs->flood_max_advert));              // 296
++    file.read((uint8_t *)&_prefs->radio_fem_rxgain, sizeof(_prefs->radio_fem_rxgain));              // 297
++    file.read((uint8_t *)&_prefs->cad_enabled, sizeof(_prefs->cad_enabled));                       // 298
++    // next: 299
+ 
+     // sanitise bad pref values
+     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
+@@ -132,6 +135,10 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy
+ 
+     // sanitise settings
+     _prefs->rx_boosted_gain = constrain(_prefs->rx_boosted_gain, 0, 1); // boolean
++    _prefs->advert_ratelimit = constrain(_prefs->advert_ratelimit, 0, 3600);
++    _prefs->advert_jail = constrain(_prefs->advert_jail, 0, 168);
++    _prefs->flood_path_max = constrain(_prefs->flood_path_max, 0, 255);
++    _prefs->flood_max_advert = constrain(_prefs->flood_max_advert, 0, 255);
+     _prefs->radio_fem_rxgain = constrain(_prefs->radio_fem_rxgain, 0, 1); // boolean
+     _prefs->radio_fem_txgain = constrain(_prefs->radio_fem_txgain, 0, 1); // boolean
+     _prefs->cad_enabled = constrain(_prefs->cad_enabled, 0, 1); // boolean
+@@ -227,6 +234,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
+       }
+     } else if (memcmp(command, "neighbors", 9) == 0) {
+       _callbacks->formatNeighborsReply(reply);
++    } else if (memcmp(command, "jail", 4) == 0 && (command[4] == 0 || command[4] == ' ')) {
++      _callbacks->formatAdvertJailReply(reply);
+     } else if (memcmp(command, "neighbor.remove ", 16) == 0) {
+       const char* hex = &command[16];
+       uint8_t pubkey[PUB_KEY_SIZE];
+@@ -503,6 +512,33 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
+       savePrefs();
+       strcpy(reply, "OK");
+     }
++  } else if (memcmp(config, "advert.ratelimit ", 17) == 0) {
++    int secs = _atoi(&config[17]);
++    if (secs < 0 || secs > 3600) {
++      strcpy(reply, "Error: range is 0-3600 seconds (0=off)");
++    } else {
++      _prefs->advert_ratelimit = (uint16_t)secs;
++      savePrefs();
++      strcpy(reply, "OK");
++    }
++  } else if (memcmp(config, "advert.jail ", 12) == 0) {
++    int hours = _atoi(&config[12]);
++    if (hours < 0 || hours > 168) {
++      strcpy(reply, "Error: range is 0-168 hours (0=off)");
++    } else {
++      _prefs->advert_jail = (uint8_t)hours;
++      savePrefs();
++      strcpy(reply, "OK");
++    }
++  } else if (memcmp(config, "flood.path.max ", 15) == 0) {
++    int val = _atoi(&config[15]);
++    if (val < 0 || val > 255) {
++      strcpy(reply, "Error: range is 0-255 (0=off, default=12)");
++    } else {
++      _prefs->flood_path_max = (uint8_t)val;
++      savePrefs();
++      strcpy(reply, "OK");
++    }
+   } else if (memcmp(config, "guest.password ", 15) == 0) {
+     StrHelper::strncpy(_prefs->guest_password, &config[15], sizeof(_prefs->guest_password));
+     savePrefs();
+@@ -827,6 +863,12 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
+     sprintf(reply, "> %d", ((uint32_t) _prefs->flood_advert_interval));
+   } else if (memcmp(config, "advert.interval", 15) == 0) {
+     sprintf(reply, "> %d", ((uint32_t) _prefs->advert_interval) * 2);
++  } else if (memcmp(config, "advert.ratelimit", 16) == 0) {
++    sprintf(reply, "> %d", (uint32_t) _prefs->advert_ratelimit);
++  } else if (memcmp(config, "advert.jail", 11) == 0) {
++    sprintf(reply, "> %d", (uint32_t) _prefs->advert_jail);
++  } else if (memcmp(config, "flood.path.max", 14) == 0) {
++    sprintf(reply, "> %d", (uint32_t) _prefs->flood_path_max);
+   } else if (memcmp(config, "guest.password", 14) == 0) {
+     sprintf(reply, "> %s", _prefs->guest_password);
+   } else if (sender_timestamp == 0 && memcmp(config, "prv.key", 7) == 0) {  // from serial command line only
+diff --git a/src/helpers/CommonCLI.h b/src/helpers/CommonCLI.h
+index 237c758e..8793e3b0 100644
+--- a/src/helpers/CommonCLI.h
++++ b/src/helpers/CommonCLI.h
+@@ -68,6 +68,9 @@ public:
+   uint8_t radio_fem_txgain = 0; // LoRa FEM TX gain setting
+   uint8_t path_hash_mode = 0;   // which path mode to use when sending
+   uint8_t loop_detect = 0;
++  uint16_t advert_ratelimit = 0; // seconds, 0 = off. Rate limit for incoming flood adverts
++  uint8_t advert_jail = 0;        // hours, 0 = off. Per-sender flood advert jail interval
++  uint8_t flood_path_max = 0;     // max path hops for flood REQ/RESPONSE/PATH, 0 = off. Default 12.
+   uint8_t cad_enabled = 0;      // hardware Channel Activity Detection before TX (boolean)
+   uint8_t extra_sf[4];
+ 
+@@ -149,6 +152,9 @@ private:
+       def("f_max_uns", _parent->flood_max_unscoped);
+       def("f_max_adv", _parent->flood_max_advert);
+       def("loop", _parent->loop_detect);
++      def("advert_rl", _parent->advert_ratelimit);
++      def("advert_jail", _parent->advert_jail);
++      def("f_path_max", _parent->flood_path_max);
+     }
+   public:
+     RepeatPrefs(NodePrefs* parent) : _parent(parent) { }
+@@ -212,6 +218,9 @@ public:
+   virtual void removeNeighbor(const uint8_t* pubkey, int key_len) {
+     // no op by default
+   };
++  virtual void formatAdvertJailReply(char *reply) {
++    strcpy(reply, "-none-");
++  };
+   virtual void formatStatsReply(char *reply) = 0;
+   virtual void formatRadioStatsReply(char *reply) = 0;
+   virtual void formatPacketStatsReply(char *reply) = 0;
