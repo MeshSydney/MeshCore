@@ -223,18 +223,17 @@ void GxEPDDisplay::endFrame() {
   if (_isOn == false) return;
   uint32_t crc = display_crc.finalize();
   if (crc != last_display_crc_value || _full_refresh_pending) {
-    if (_full_refresh_pending) {
-      // Mode 1 full refresh: writes 0xFF to both controller frame buffers
-      // (0x26 prev and 0x24 curr) then runs the OTP full waveform → panel
-      // goes black then settles on white.
-      // After this: 0x26=white, 0x24=white.
-      display.clearScreen();
-    }
-    // Always use partial mode (Mode 2). When preceded by clearScreen:
-    //   0x26=white, display(true) writes content only to 0x24 → Mode 2 sees
-    //   WB transitions (white→black) for all black content pixels → correct.
-    // For normal partial frames: 0x26=prev content, 0x24=new content → diff.
-    display.display(true);
+    // display.display(false) writes the already-rendered buffer to BOTH
+    // controller frame buffers (0x26 prev and 0x24 curr) and runs a single
+    // full OTP waveform update — this shows the real new content directly
+    // and re-syncs both buffers, clearing any accumulated ghosting.
+    // display.display(true) only updates 0x24 and runs the fast partial
+    // waveform (diffed against 0x26) — cheap, but ghosts over time.
+    // Previously this did a separate clearScreen() (blank full refresh)
+    // immediately followed by a partial-mode content write, i.e. two
+    // back-to-back hardware refreshes; that caused a very dark/incomplete
+    // looking screen. A single full display(false) avoids that.
+    display.display(!_full_refresh_pending);
     _full_refresh_pending = false;
     if (_cycles_before_full_refresh > 0) {
       _cycles_before_full_refresh--;
