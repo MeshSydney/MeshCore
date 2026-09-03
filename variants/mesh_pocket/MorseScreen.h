@@ -63,6 +63,11 @@ extern MomentaryButton user_btn;
 #define MORSE_SEND_HOLD_MS       7000
 #define MORSE_EXIT_HOLD_MS       9000
 
+// Full (deghosting) refresh cadence, in render() calls. render() runs on an
+// ~800ms cadence, so 375 renders is ~5 minutes — matches HomeScreen's rate.
+// Only applied while idle so it can't stall an in-progress dot/dash.
+#define MORSE_FULL_REFRESH_RENDERS  375
+
 // Buffer sizes
 #define MORSE_OUT_BUF_LEN      134   // MeshCore per-channel msg cap is ~133
 #define MORSE_STAGING_MAX      12    // longest pattern we accept (HH = 8)
@@ -141,6 +146,7 @@ class MorseScreen : public UIScreen {
 
   bool          _dirty;
   unsigned long _nextRender;
+  uint16_t      _fullRefreshCount;
 
   // ---------------------------------------------------------------------------
   // Morse decode
@@ -220,7 +226,7 @@ public:
       _holdAction(HOLD_NONE),
       _wantsExit(false), _wantsSend(false),
       _inboxNewest(0), _inboxCount(0),
-      _dirty(true), _nextRender(0)
+      _dirty(true), _nextRender(0), _fullRefreshCount(0)
   {
     _outBuf[0] = 0;
     _staging[0] = 0;
@@ -244,6 +250,7 @@ public:
     _wantsExit = false;
     _wantsSend = false;
     _dirty = true;
+    _fullRefreshCount = 0;
   }
 
   uint8_t getChannelIdx() const { return _channelIdx; }
@@ -490,6 +497,15 @@ public:
 
     _dirty = false;
     _nextRender = millis();
+
+    // Periodic full (deghosting) refresh — only while idle so it can't
+    // stall an in-progress dot/dash keystroke.
+    if (_holdAction == HOLD_NONE && !user_btn.isPressed()) {
+      if (++_fullRefreshCount >= MORSE_FULL_REFRESH_RENDERS) {
+        _fullRefreshCount = 0;
+        display.setNextFrameFullRefresh();
+      }
+    }
 
     // T-Deck Pro render throttle pattern: 800ms minimum after endFrame()
     // guarantees unblocked poll() time for button sampling. The CRC check
