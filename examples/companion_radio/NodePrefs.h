@@ -45,6 +45,7 @@ public:
   uint8_t default_scope_key[16];
   int16_t interference_threshold = 0;
   uint8_t agc_reset_interval = 0;    // stored in 4-second units
+  int8_t tz_offset = 0;
 
 private:
   class RadioPrefs : public CommonRadioPrefs {
@@ -152,6 +153,7 @@ private:
       def("tel_base", _parent->telemetry_mode_base);
       def("tel_loc", _parent->telemetry_mode_loc);
       def("tel_env", _parent->telemetry_mode_env);
+      def("tz_offset", _parent->tz_offset);
     }
   public:
     CompanionPrefs(NodePrefs* parent) : _parent(parent) { }
