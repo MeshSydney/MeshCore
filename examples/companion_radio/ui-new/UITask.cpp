@@ -118,9 +118,11 @@ class HomeScreen : public UIScreen {
   NodePrefs* _node_prefs;
   uint8_t _page;
   bool _shutdown_init;
+#ifdef HELTEC_MESH_POCKET
   bool _display_blanked;
   bool _just_blanked;
   uint8_t _batt_render_count;
+#endif
   uint16_t _normal_render_count;
   AdvertPath recent[UI_RECENT_LIST_SIZE];
 #if !(defined(UI_NO_DISCOVER_SCREEN) && (UI_NO_DISCOVER_SCREEN + 0 != 0))
@@ -194,7 +196,8 @@ class HomeScreen : public UIScreen {
     int fillWidth = (batteryPercentage * (iconWidth - 4)) / 100;
     display.fillRect(iconX + 2, iconY + 2, fillWidth, iconHeight - 4);
 
-    // percentage label to the left of the icon
+#ifdef HELTEC_MESH_POCKET
+    // percentage label to the left of the icon (Mesh Pocket only)
     char pct_str[5];
     snprintf(pct_str, sizeof(pct_str), "%d%%", batteryPercentage);
     display.drawTextRightAlign(iconX - 3, iconY, pct_str);
@@ -220,6 +223,7 @@ class HomeScreen : public UIScreen {
       display.drawXbm(pctLeftEdge - (charging ? 18 : 9), iconY + 1, muted_icon, 8, 8);
     }
 #endif
+#endif // HELTEC_MESH_POCKET
   }
 
   CayenneLPP sensors_lpp;
@@ -252,7 +256,11 @@ class HomeScreen : public UIScreen {
 public:
   HomeScreen(UITask* task, mesh::RTCClock* rtc, SensorManager* sensors, NodePrefs* node_prefs)
      : _task(task), _rtc(rtc), _sensors(sensors), _node_prefs(node_prefs), _page(0),
-       _shutdown_init(false), _display_blanked(false), _just_blanked(false), _batt_render_count(0), _normal_render_count(0), sensors_lpp(200) {  }
+       _shutdown_init(false),
+#ifdef HELTEC_MESH_POCKET
+       _display_blanked(false), _just_blanked(false), _batt_render_count(0),
+#endif
+       _normal_render_count(0), sensors_lpp(200) {  }
 
   void poll() override {
     if (_shutdown_init && !_task->isButtonPressed()) {  // must wait for USR button to be released
@@ -261,6 +269,7 @@ public:
   }
 
   int render(DisplayDriver& display) override {
+#ifdef HELTEC_MESH_POCKET
     if (_display_blanked) {
       if (_just_blanked) {
         _just_blanked = false;
@@ -292,6 +301,7 @@ public:
 
       return 60000;  // refresh rarely while blanked
     }
+#endif // HELTEC_MESH_POCKET
     // periodic full refresh to prevent e-ink ghosting during normal operation
     _normal_render_count++;
     if (_normal_render_count >= 60) {  // full refresh every ~5 min (60 * 5s)
@@ -601,6 +611,7 @@ public:
   }
 
   bool handleInput(char c) override {
+#ifdef HELTEC_MESH_POCKET
     if (_display_blanked) {
       _display_blanked = false;  // any press un-blanks
       _batt_render_count = 0;
@@ -611,6 +622,7 @@ public:
       _just_blanked = true;
       return true;
     }
+#endif // HELTEC_MESH_POCKET
     if (c == KEY_LEFT || c == KEY_PREV) {
       _page = (_page + HomePage::Count - 1) % HomePage::Count;
       return true;
