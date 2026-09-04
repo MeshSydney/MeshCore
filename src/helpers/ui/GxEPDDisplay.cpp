@@ -51,6 +51,36 @@ bool GxEPDDisplay::begin() {
     delay(2000);
   }
 
+#ifdef HELTEC_MESH_POCKET
+  // The stock SSD1680 init sequence (run above, as part of the washing-machine
+  // cycle) sets BorderWaveform (controller register 0x3C) to 0x05, which
+  // actively drives the panel's border strip through a black/white transition
+  // on every refresh, producing a visible dark flash/frame around the edge of
+  // the screen. Override it to 0x80 (border left floating/HiZ instead of
+  // driven) so the border no longer flashes. This has to be done via raw SPI
+  // here (rather than a GxEPD2 API call) since the controller command/data
+  // helpers are protected library internals. It must be sent after the
+  // panel's own init sequence above (which unconditionally resets it), and
+  // survives afterwards since this board never hibernates the display
+  // (AUTO_OFF_MILLIS=0), so the library never re-runs its init sequence.
+  {
+    SPISettings spi_settings(4000000, MSBFIRST, SPI_MODE0);
+    SPI1.beginTransaction(spi_settings);
+    digitalWrite(PIN_DISPLAY_DC, LOW);   // command
+    digitalWrite(PIN_DISPLAY_CS, LOW);
+    SPI1.transfer(0x3C);
+    digitalWrite(PIN_DISPLAY_CS, HIGH);
+    digitalWrite(PIN_DISPLAY_DC, HIGH);
+    SPI1.endTransaction();
+
+    SPI1.beginTransaction(spi_settings);
+    digitalWrite(PIN_DISPLAY_CS, LOW);   // data
+    SPI1.transfer(0x80);
+    digitalWrite(PIN_DISPLAY_CS, HIGH);
+    SPI1.endTransaction();
+  }
+#endif
+
   display.setPartialWindow(0, 0, display.width(), display.height());
   resetPartialRefreshCounter();
   // Schedule a clear on the first rendered frame via endFrame().
@@ -223,17 +253,19 @@ void GxEPDDisplay::endFrame() {
   if (_isOn == false) return;
   uint32_t crc = display_crc.finalize();
   if (crc != last_display_crc_value || _full_refresh_pending) {
-    // display.display(false) writes the already-rendered buffer to BOTH
-    // controller frame buffers (0x26 prev and 0x24 curr) and runs a single
-    // full OTP waveform update — this shows the real new content directly
-    // and re-syncs both buffers, clearing any accumulated ghosting.
-    // display.display(true) only updates 0x24 and runs the fast partial
-    // waveform (diffed against 0x26) — cheap, but ghosts over time.
-    // Previously this did a separate clearScreen() (blank full refresh)
-    // immediately followed by a partial-mode content write, i.e. two
-    // back-to-back hardware refreshes; that caused a very dark/incomplete
-    // looking screen. A single full display(false) avoids that.
-    display.display(!_full_refresh_pending);
+    bool full_deghost = _full_refresh_pending;
+    if (full_deghost) {
+      // Wipe to solid white with a full-waveform update first, so there is
+      // a real black/white transition to force out accumulated ghosting
+      // (writing the same content to both prev/curr buffers, as a single
+      // display(false) does, leaves prior ghosting untouched underneath).
+      display.clearScreen(0xFF);
+    }
+    // After a deghost wipe, draw content with another full-waveform update
+    // so it settles cleanly against the known-white state (partial mode
+    // here left visible residue). Otherwise use the cheap partial update
+    // for normal incremental redraws.
+    display.display(!full_deghost);
     _full_refresh_pending = false;
     if (_cycles_before_full_refresh > 0) {
       _cycles_before_full_refresh--;
