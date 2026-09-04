@@ -64,9 +64,9 @@ extern MomentaryButton user_btn;
 #define MORSE_EXIT_HOLD_MS       9000
 
 // Full (deghosting) refresh cadence, in render() calls. render() runs on an
-// ~800ms cadence, so 375 renders is ~5 minutes — matches HomeScreen's rate.
+// ~800ms cadence, so 2250 renders is ~30 minutes — matches HomeScreen's rate.
 // Only applied while idle so it can't stall an in-progress dot/dash.
-#define MORSE_FULL_REFRESH_RENDERS  375
+#define MORSE_FULL_REFRESH_RENDERS  2250
 
 // Buffer sizes
 #define MORSE_OUT_BUF_LEN      134   // MeshCore per-channel msg cap is ~133

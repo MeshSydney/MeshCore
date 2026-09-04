@@ -277,7 +277,7 @@ public:
         display.setNextFrameFullRefresh();  // full refresh to clear ghosting from previous screen
       } else {
         _batt_render_count++;
-        if (_batt_render_count >= 5) {  // full refresh every ~5 min to prevent ghosting
+        if (_batt_render_count >= 30) {  // full refresh every ~30 min to prevent ghosting
           _batt_render_count = 0;
           display.setNextFrameFullRefresh();
         }
@@ -304,7 +304,7 @@ public:
 #endif // HELTEC_MESH_POCKET
     // periodic full refresh to prevent e-ink ghosting during normal operation
     _normal_render_count++;
-    if (_normal_render_count >= 60) {  // full refresh every ~5 min (60 * 5s)
+    if (_normal_render_count >= 360) {  // full refresh every ~30 min (360 * 5s)
       _normal_render_count = 0;
       display.setNextFrameFullRefresh();
     }

@@ -253,19 +253,18 @@ void GxEPDDisplay::endFrame() {
   if (_isOn == false) return;
   uint32_t crc = display_crc.finalize();
   if (crc != last_display_crc_value || _full_refresh_pending) {
-    bool full_deghost = _full_refresh_pending;
-    if (full_deghost) {
+    if (_full_refresh_pending) {
       // Wipe to solid white with a full-waveform update first, so there is
-      // a real black/white transition to force out accumulated ghosting
-      // (writing the same content to both prev/curr buffers, as a single
-      // display(false) does, leaves prior ghosting untouched underneath).
+      // a real black/white transition to force out accumulated ghosting.
       display.clearScreen(0xFF);
     }
-    // After a deghost wipe, draw content with another full-waveform update
-    // so it settles cleanly against the known-white state (partial mode
-    // here left visible residue). Otherwise use the cheap partial update
-    // for normal incremental redraws.
-    display.display(!full_deghost);
+    // Always push content with a partial update: this writes only the curr
+    // register, leaving prev as the white we just wiped to (deghost frames)
+    // or the previous frame's content (normal frames) -- a genuine prev!=curr
+    // diff, which is what drives text fully black. A full-mode push here
+    // writes identical content to both registers, leaving text under-driven
+    // and grey instead of black.
+    display.display(true);
     _full_refresh_pending = false;
     if (_cycles_before_full_refresh > 0) {
       _cycles_before_full_refresh--;
