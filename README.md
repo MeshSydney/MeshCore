@@ -188,11 +188,12 @@ Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump des
 ---
 
 ## 15. Core Mesh Routing — Next-Hop Reliability (`src/Mesh.*`)
-- When a repeater forwards a direct (path-routed) packet and there's still a further explicit hop left in its path, it now tracks the packet's content hash and listens for that next hop repeating it — an overheard repeat is treated as implicit confirmation of receipt
+- When a node forwards a direct (path-routed) packet and there's still a further explicit hop left in its path, it now tracks the packet's content hash and listens for that next hop repeating it — an overheard repeat is treated as implicit confirmation of receipt
+- Also applied when a companion radio, repeater, or room server **originates** a direct packet (via `sendDirect()`) rather than just relaying one — the sending node listens for the first hop in the path to repeat it, the same as any in-transit repeater would
 - If no repeat is heard within a timeout, the packet is resent, **up to 3 retries**, before being dropped
 - Tunable via new virtual hooks on `Mesh`: `getNextHopReliabilityEnabled()` (default on), `getNextHopMaxRetries()` (default 3), `getNextHopConfirmTimeout()` (default ~3x estimated airtime + 2 s)
-- Applies only to the generic direct-forward path (not ACKs, MULTIPART parts, or TRACE, which already have their own forwarding/dedup semantics)
-- Known limitation: the last repeater before the final destination can't get a confirmation (the destination consumes the packet silently instead of repeating it), so that last hop will always exhaust its retries — inherent to any overhearing-based reliability scheme
+- Does not apply to ACK/MULTIPART packets being relayed *in-transit* by a repeater (they use their own dedicated forwarding/dedup logic), or to TRACE (path grows rather than shrinks per-hop, so its hash isn't stable across hops)
+- Known limitation: the last hop before the final destination can't get a confirmation (the destination consumes the packet silently instead of repeating it), so that last hop will always exhaust its retries — inherent to any overhearing-based reliability scheme
 
 MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
 
