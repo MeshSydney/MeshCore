@@ -10,23 +10,38 @@
 #endif
 
 void BaseChatMesh::initContacts() {
+  // Heap allocate contacts + sort_array. Total slot layout matches upstream:
+  //   [0 .. MAX_ANON_CONTACTS-1] : reserved for anon-request slots
+  //   [MAX_ANON_CONTACTS .. total-1] : regular contacts
+  // num_contacts is seeded to MAX_ANON_CONTACTS so iteration begins past the
+  // reserved slots and terminates at the last populated real contact.
 #if defined(BOARD_HAS_PSRAM) && defined(ESP32)
+  int total_slots = MAX_CONTACTS + MAX_ANON_CONTACTS;
   if (contacts == nullptr) {
-    contacts = (ContactInfo*) ps_calloc(MAX_CONTACTS, sizeof(ContactInfo));
+    contacts = (ContactInfo*) ps_calloc(total_slots, sizeof(ContactInfo));
   }
   if (sort_array == nullptr) {
-    sort_array = (int*) ps_calloc(MAX_CONTACTS, sizeof(int));
+    sort_array = (int*) ps_calloc(total_slots, sizeof(int));
+  }
+  if (contacts != nullptr) {
+    max_contacts = total_slots;
   }
 #endif
   if (contacts == nullptr) {
-    max_contacts = CONTACTS_SRAM_FALLBACK;
+    // Non-PSRAM (or PSRAM allocation failed): allocate from regular SRAM heap.
+    // Honour CONTACTS_SRAM_FALLBACK as an optional cap (defaults to MAX_CONTACTS).
+    int cap = CONTACTS_SRAM_FALLBACK;
+    if (cap > MAX_CONTACTS) cap = MAX_CONTACTS;
+    max_contacts = cap + MAX_ANON_CONTACTS;
     contacts   = new ContactInfo[max_contacts];
     sort_array = new int[max_contacts];
     memset(contacts, 0, max_contacts * sizeof(ContactInfo));
     memset(sort_array, 0, max_contacts * sizeof(int));
-  } else {
-    max_contacts = MAX_CONTACTS;
   }
+  // Seed the first MAX_ANON_CONTACTS slots (already zeroed above) and set the
+  // populated-count so ContactsIterator begins past them and terminates at
+  // the last populated real contact -- matches upstream semantics exactly.
+  num_contacts = MAX_ANON_CONTACTS;
 }
 
 #define CLI_REPLY_DELAY_MILLIS      600
@@ -90,29 +105,36 @@ void BaseChatMesh::bootstrapRTCfromContacts() {
 }
 
 ContactInfo* BaseChatMesh::allocateContactSlot(bool transient_only) {
-  if (num_contacts < max_contacts) {
-    return &contacts[num_contacts++];
-  } else if (transient_only || shouldOverwriteWhenFull()) {
-    // Find oldest non-favourite contact by oldest lastmod timestamp
-    int oldest_idx = -1;
-    uint32_t oldest_lastmod = 0xFFFFFFFF;
-    for (int i = 0; i < num_contacts; i++) {
-      if (transient_only) {
-        if (contacts[i].type == ADV_TYPE_NONE && contacts[i].lastmod < oldest_lastmod) {
-          oldest_lastmod = contacts[i].lastmod;
-          oldest_idx = i;
-        }
-      } else {
+  int oldest_idx = -1;
+  uint32_t oldest_lastmod = 0xFFFFFFFF;
+  if (transient_only) {
+    // only allocate from first MAX_ANON_CONTACTS reserved slots
+    for (int i = 0; i < MAX_ANON_CONTACTS; i++) {
+      if (contacts[i].type == ADV_TYPE_NONE && contacts[i].lastmod < oldest_lastmod) {
+        oldest_lastmod = contacts[i].lastmod;
+        oldest_idx = i;
+      }
+    }
+    if (oldest_idx >= 0) {
+      // NOTE: do NOT call onContactOverwrite()
+      return &contacts[oldest_idx];
+    }
+  } else {
+    if (num_contacts < max_contacts) {
+      return &contacts[num_contacts++];
+    } else if (shouldOverwriteWhenFull()) {
+      // Find oldest non-favourite contact by oldest lastmod timestamp
+      for (int i = MAX_ANON_CONTACTS; i < num_contacts; i++) {
         bool is_favourite = (contacts[i].flags & 0x01) != 0;
-        if (!is_favourite && contacts[i].lastmod < oldest_lastmod && contacts[i].type != ADV_TYPE_NONE) {
+        if (!is_favourite && contacts[i].lastmod < oldest_lastmod) {
           oldest_lastmod = contacts[i].lastmod;
           oldest_idx = i;
         }
       }
-    }
-    if (oldest_idx >= 0) {
-      onContactOverwrite(contacts[oldest_idx].id.pub_key);
-      return &contacts[oldest_idx];
+      if (oldest_idx >= 0) {
+        onContactOverwrite(contacts[oldest_idx].id.pub_key);
+        return &contacts[oldest_idx];
+      }
     }
   }
   return NULL; // no space, no overwrite or all contacts are all favourites
@@ -1003,7 +1025,7 @@ ContactsIterator BaseChatMesh::startContactsIterator() {
 }
 
 bool ContactsIterator::hasNext(const BaseChatMesh* mesh, ContactInfo& dest) {
-  if (next_idx >= mesh->max_contacts) return false;
+  if (next_idx >= mesh->getTotalContactSlots()) return false;
 
   dest = mesh->contacts[next_idx++];
   return true;
