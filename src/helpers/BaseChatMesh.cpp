@@ -1003,7 +1003,10 @@ ContactsIterator BaseChatMesh::startContactsIterator() {
 }
 
 bool ContactsIterator::hasNext(const BaseChatMesh* mesh, ContactInfo& dest) {
-  if (next_idx >= mesh->max_contacts) return false;
+  // bound by populated contact count, NOT allocated array capacity (max_contacts) --
+  // otherwise sync has to walk every unused slot (one per main-loop tick) when
+  // MAX_CONTACTS is set much higher than the user's actual contact count.
+  if (next_idx >= mesh->num_contacts) return false;
 
   dest = mesh->contacts[next_idx++];
   return true;
