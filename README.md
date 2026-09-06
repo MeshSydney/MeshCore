@@ -193,7 +193,8 @@ Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump des
 - If no repeat is heard within a timeout, the packet is resent, **up to 3 retries**, before being dropped
 - Tunable via new virtual hooks on `Mesh`: `getNextHopReliabilityEnabled()` (default on), `getNextHopMaxRetries()` (default 3), `getNextHopConfirmTimeout()` (default ~3x estimated airtime + 2 s)
 - Does not apply to ACK/MULTIPART packets being relayed *in-transit* by a repeater (they use their own dedicated forwarding/dedup logic), or to TRACE (path grows rather than shrinks per-hop, so its hash isn't stable across hops)
-- Known limitation: the last hop before the final destination can't get a confirmation (the destination consumes the packet silently instead of repeating it), so that last hop will always exhaust its retries — inherent to any overhearing-based reliability scheme
+- **Last hop before the destination**: since the destination consumes the packet silently instead of repeating it, there's nothing to overhear there. For `REQ` packets (repeater CLI commands, status/neighbour queries, logins) this gap is closed instead by waiting for the correlated `RESPONSE` the destination sends back — the `RESPONSE`'s `dest_hash` is matched against the original `REQ`'s `src_hash`, so only a genuine reply to that specific request counts as confirmation, not just any traffic
+- Known limitation: direct text messages (`TXT_MSG`) are acknowledged with a plain `ACK`, which carries no dest/src hash to correlate against, so their last hop still can't be confirmed this way and will always exhaust its retries. The same applies to the *return* leg of a confirmed `RESPONSE` — its own last hop back to the original sender has no further reply to key off of, so that hop is subject to the same inherent limitation
 
 MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
 
