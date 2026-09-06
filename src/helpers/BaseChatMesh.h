@@ -38,9 +38,13 @@ public:
   #define MAX_CONTACTS  32
 #endif
 
-// Safe fallback contact count when PSRAM is unavailable and SRAM must be used
+// Upper bound for non-PSRAM (SRAM heap) allocation of the contacts array.
+// By default this tracks MAX_CONTACTS so non-PSRAM boards get exactly the
+// count they configured (matches upstream stack-sizing behaviour). Boards
+// that intentionally share a platformio.ini with a PSRAM sibling and need
+// to downcap SRAM usage can override this explicitly.
 #ifndef CONTACTS_SRAM_FALLBACK
-  #define CONTACTS_SRAM_FALLBACK  200
+  #define CONTACTS_SRAM_FALLBACK  MAX_CONTACTS
 #endif
 
 #define MAX_ANON_CONTACTS  8
@@ -66,10 +70,12 @@ class BaseChatMesh : public mesh::Mesh {
 
   friend class ContactsIterator;
 
+  // Contacts + sort_array are heap-allocated (PSRAM on ESP32+PSRAM boards,
+  // regular SRAM heap elsewhere) at init time by initContacts().
   ContactInfo* contacts;
-  int num_contacts;
-  int max_contacts;
   int* sort_array;
+  int max_contacts;   // total allocated slots (incl. MAX_ANON_CONTACTS reserved at start)
+  int num_contacts;   // populated count (seeded to MAX_ANON_CONTACTS on init, upstream semantics)
   int matching_peer_indexes[MAX_SEARCH_RESULTS];
   unsigned long txt_send_timeout;
 #ifdef MAX_GROUP_CHANNELS
@@ -103,7 +109,12 @@ protected:
   void initContacts();
   void bootstrapRTCfromContacts();
 
-  void resetContacts() { num_contacts = 0; }
+  void resetContacts() {
+    if (contacts != nullptr) {
+      memset(contacts, 0, sizeof(contacts[0])*MAX_ANON_CONTACTS);   // set all to have type = ADV_TYPE_NONE(0)
+    }
+    num_contacts = MAX_ANON_CONTACTS;   // seed the first contacts for anon requests (upstream semantics)
+  }
   void populateContactFromAdvert(ContactInfo& ci, const mesh::Identity& id, const AdvertDataParser& parser, uint32_t timestamp);
   ContactInfo* allocateContactSlot(bool transient_only=false); // helper to find slot for new contact
 
@@ -179,8 +190,9 @@ public:
   ContactInfo* lookupContactByPubKey(const uint8_t* pub_key, int prefix_len);
   bool  removeContact(ContactInfo& contact);
   bool  addContact(const ContactInfo& contact);
-  int getNumContacts() const { return num_contacts; }
-  int getMaxContacts() const { return max_contacts; }
+  int getTotalContactSlots() const { return num_contacts; }
+  int getNumContacts() const { return num_contacts - MAX_ANON_CONTACTS; }   // don't include the reserved slots at start
+  int getMaxContacts() const { return max_contacts - MAX_ANON_CONTACTS; }
   bool getContactByIdx(uint32_t idx, ContactInfo& contact);
   ContactsIterator startContactsIterator();
   ChannelDetails* addChannel(const char* name, const char* psk_base64);
