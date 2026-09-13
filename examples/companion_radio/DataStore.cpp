@@ -50,6 +50,16 @@ static File openReadWrite(FILESYSTEM* fs, const char* filename) {
 #endif
 }
 
+static File openReadOnly(FILESYSTEM* fs, const char* filename) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  return fs->open(filename, FILE_O_READ);
+#elif defined(RP2040_PLATFORM)
+  return fs->open(filename, "r");
+#else
+  return fs->open(filename, "r", false);
+#endif
+}
+
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   static uint32_t _ContactsChannelsTotalBlocks = 0;
 #endif
@@ -488,6 +498,36 @@ bool DataStore::writeContactRecord(uint32_t idx, const ContactInfo& c) {
   return success;
 }
 
+// Shrinks a file down to want_size bytes. Adafruit_LittleFS (NRF52/STM32) exposes File::truncate()
+// directly; the ESP32/RP2040 fs::File wrapper does not, so on those platforms this emulates it by
+// reading the bytes to keep, then removing and rewriting the file with just that much data.
+static bool truncateFile(FILESYSTEM* fs, const char* filename, uint32_t want_size) {
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  File file = openReadWrite(fs, filename);
+  if (!file) return false;
+  bool ok = file.truncate(want_size);
+  file.close();
+  return ok;
+#else
+  if (want_size == 0) return fs->remove(filename);
+
+  uint8_t* buf = new uint8_t[want_size];
+  bool ok;
+  {
+    File file = openReadOnly(fs, filename);
+    ok = file && (file.read(buf, want_size) == want_size);
+    if (file) file.close();
+  }
+  if (ok) {
+    File file = openWrite(fs, filename);
+    ok = file && (file.write(buf, want_size) == want_size);
+    if (file) file.close();
+  }
+  delete[] buf;
+  return ok;
+#endif
+}
+
 // One-time self-heal, called once at boot (after the contacts scan has determined how many
 // records are really in use). Older firmware used to pre-extend /contacts3 to the full
 // MAX_CONTACTS capacity via ensureContactsCapacity() -- devices that were ever flashed with that
@@ -511,12 +551,12 @@ bool DataStore::truncateContactsFileIfNeeded(uint32_t used_records) {
     if (!fs->exists(filename)) break;   // no shard files were ever created beyond this point
 
     if (shard == used_shard) {
-      File file = openReadWrite(fs, filename);
-      if (file) {
-        uint32_t want_size = used_slot * CONTACT_RECORD_SIZE;
-        if (file.size() > want_size) ok = file.truncate(want_size) && ok;
-        file.close();
-      }
+      File file = openReadOnly(fs, filename);
+      uint32_t cur_size = file ? file.size() : 0;
+      if (file) file.close();
+
+      uint32_t want_size = used_slot * CONTACT_RECORD_SIZE;
+      if (cur_size > want_size) ok = truncateFile(fs, filename, want_size) && ok;
     } else {
       ok = removeFile(fs, filename) && ok;
     }
