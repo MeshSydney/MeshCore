@@ -222,6 +222,68 @@ bool MyMesh::Frame::isChannelMsg() const {
          buf[0] == RESP_CODE_CHANNEL_DATA_RECV;
 }
 
+#ifdef OFFLINE_QUEUE_FLASH
+
+static bool isChannelMsgCode(uint8_t code) {
+  return code == RESP_CODE_CHANNEL_MSG_RECV || code == RESP_CODE_CHANNEL_MSG_RECV_V3 ||
+         code == RESP_CODE_CHANNEL_DATA_RECV;
+}
+
+void MyMesh::initOfflineQueue() {
+  _store->resetOfflineQueue();
+  offline_queue_max = OFFLINE_QUEUE_SIZE;
+  offline_queue_head = 0;
+  offline_queue_len = 0;
+}
+
+void MyMesh::addToOfflineQueue(const uint8_t frame[], int len) {
+  if (offline_queue_len >= offline_queue_max) {
+    MESH_DEBUG_PRINTLN("WARN: offline_queue is full!");
+    // Scan for the oldest channel message to evict (preserves direct messages)
+    uint8_t scan_buf[MAX_FRAME_SIZE];
+    uint8_t scan_len;
+    for (int i = 0; i < offline_queue_len; i++) {
+      uint32_t idx = (offline_queue_head + i) % offline_queue_max;
+      if (!_store->readOfflineQueueRecord(idx, scan_buf, scan_len)) break;
+      if (isChannelMsgCode(scan_buf[0])) {
+        MESH_DEBUG_PRINTLN("INFO: removed oldest channel message from queue.");
+        // Shift logical entries from this position toward the tail by one slot
+        uint8_t shift_buf[MAX_FRAME_SIZE];
+        uint8_t shift_len;
+        for (int j = i; j < offline_queue_len - 1; j++) {
+          uint32_t src = (offline_queue_head + j + 1) % offline_queue_max;
+          uint32_t dst = (offline_queue_head + j)     % offline_queue_max;
+          if (_store->readOfflineQueueRecord(src, shift_buf, shift_len)) {
+            _store->writeOfflineQueueRecord(dst, shift_buf, shift_len);
+          }
+        }
+        uint32_t tail = (offline_queue_head + offline_queue_len - 1) % offline_queue_max;
+        _store->writeOfflineQueueRecord(tail, frame, (uint8_t)len);
+        return;
+      }
+    }
+    MESH_DEBUG_PRINTLN("INFO: no channel messages to remove from queue.");
+  } else {
+    uint32_t tail = (offline_queue_head + offline_queue_len) % offline_queue_max;
+    _store->writeOfflineQueueRecord(tail, frame, (uint8_t)len);
+    offline_queue_len++;
+  }
+}
+
+int MyMesh::getFromOfflineQueue(uint8_t frame[]) {
+  if (offline_queue_len > 0) {                                    // check offline queue
+    uint8_t len;
+    if (_store->readOfflineQueueRecord(offline_queue_head, frame, len)) {
+      offline_queue_head = (offline_queue_head + 1) % offline_queue_max;  // advance head (O(1))
+      offline_queue_len--;
+      return len;
+    }
+  }
+  return 0; // queue is empty
+}
+
+#else
+
 void MyMesh::initOfflineQueue() {
 #if defined(BOARD_HAS_PSRAM) && defined(ESP32)
   if (offline_queue == nullptr) {
@@ -274,6 +336,9 @@ int MyMesh::getFromOfflineQueue(uint8_t frame[]) {
   }
   return 0; // queue is empty
 }
+
+#endif
+
 
 float MyMesh::getAirtimeBudgetFactor() const {
   return _prefs.airtime_factor;
@@ -494,7 +559,7 @@ ContactInfo*  MyMesh::processAck(const uint8_t *data) {
 
       // NOTE: the same ACK can be received multiple times!
       expected_ack_table[i].ack = 0; // clear expected hash, now that we have received ACK
-      return expected_ack_table[i].contact;
+      return lookupContactByPubKey(expected_ack_table[i].contact_pubkey, PUB_KEY_SIZE);
     }
   }
   return checkConnectionsAck(data);
@@ -952,7 +1017,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _cli_rescue = false;
   offline_queue_len = 0;
   offline_queue_max = 0;
+#ifndef OFFLINE_QUEUE_FLASH
   offline_queue = nullptr;
+#endif
   app_target_ver = 0;
   clearPendingReqs();
   next_ack_idx = 0;
@@ -1063,7 +1130,14 @@ void MyMesh::begin(bool has_display) {
 #endif
 
   resetContacts();
+#ifdef CONTACTS_FLASH_INDEX
+  loadContactsFlashIndex();
+  // one-time self-heal for devices previously flashed with the old pre-extend-upfront code --
+  // see truncateContactsFileIfNeeded() comment
+  _store->truncateContactsFileIfNeeded(getTotalContactSlots());
+#else
   _store->loadContacts(this);
+#endif
   bootstrapRTCfromContacts();
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure Andy's public channel
   _store->loadChannels(this);
@@ -1223,7 +1297,7 @@ void MyMesh::handleCmdFrame(size_t len) {
         if (expected_ack) {
           expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis(); // add to circular table
           expected_ack_table[next_ack_idx].ack = expected_ack;
-          expected_ack_table[next_ack_idx].contact = recipient;
+          memcpy(expected_ack_table[next_ack_idx].contact_pubkey, recipient->id.pub_key, PUB_KEY_SIZE);
           next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
         }
 
@@ -1384,6 +1458,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (recipient) {
       recipient->out_path_len = OUT_PATH_UNKNOWN;
       // recipient->lastmod = ??   shouldn't be needed, app already has this version of contact
+      commitContact(*recipient);   // no-op on fully-resident boards; persists to flash otherwise
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -1396,6 +1471,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (recipient) {
       updateContactFromFrame(*recipient, last_mod, cmd_frame, len);
       recipient->lastmod = last_mod;
+      commitContact(*recipient);   // no-op on fully-resident boards; persists to flash otherwise
       dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
       writeOKFrame();
     } else {
@@ -1577,9 +1653,11 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeOKFrame();
     }
   } else if (cmd_frame[0] == CMD_REBOOT && memcmp(&cmd_frame[1], "reboot", 6) == 0) {
+#ifndef CONTACTS_FLASH_INDEX
     if (dirty_contacts_expiry) { // is there are pending dirty contacts write needed?
       saveContacts();
     }
+#endif
     board.reboot();
   } else if (cmd_frame[0] == CMD_GET_BATT_AND_STORAGE) {
     uint8_t reply[11];
@@ -1613,7 +1691,11 @@ void MyMesh::handleCmdFrame(size_t len) {
           writeOKFrame();
           // re-load contacts, to invalidate ecdh shared_secrets
           resetContacts();
+#ifdef CONTACTS_FLASH_INDEX
+          loadContactsFlashIndex();
+#else
           _store->loadContacts(this);
+#endif
         } else {
           writeErrFrame(ERR_CODE_FILE_IO_ERROR);
         }
@@ -2242,7 +2324,9 @@ void MyMesh::checkCLIRescueCmd() {
       if (success) {
         _store->saveMainIdentity(self_id);
         savePrefs();
+#ifndef CONTACTS_FLASH_INDEX
         saveContacts();
+#endif
         saveChannels();
         Serial.println("  > erase and rebuild done");
       } else {
@@ -2422,7 +2506,12 @@ void MyMesh::loop() {
 
   // is there are pending dirty contacts write needed?
   if (dirty_contacts_expiry && millisHasNowPassed(dirty_contacts_expiry)) {
+#ifndef CONTACTS_FLASH_INDEX
+    // flash-indexed boards persist each mutation immediately via commitContact(), so the
+    // deferred/full-rewrite saveContacts() (incompatible with the sparse/tombstoned record
+    // layout) must NOT run here -- just clear the (otherwise unused) timer.
     saveContacts();
+#endif
     dirty_contacts_expiry = 0;
   }
 

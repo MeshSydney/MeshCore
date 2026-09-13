@@ -10,6 +10,22 @@
 #endif
 
 void BaseChatMesh::initContacts() {
+#ifdef CONTACTS_FLASH_INDEX
+  // Only a lightweight index is resident (see ContactIndexEntry); full records live on flash
+  // and are fetched on demand via loadContactRecord()/saveContactRecord(). This lets MAX_CONTACTS
+  // scale far beyond what would fit as fully resident ContactInfo structs.
+  max_contacts = MAX_CONTACTS + MAX_ANON_CONTACTS;
+  if (contact_index == nullptr) {
+    contact_index = new ContactIndexEntry[max_contacts];
+    memset(contact_index, 0, max_contacts * sizeof(ContactIndexEntry));
+  }
+  if (sort_array == nullptr) {
+    sort_array = new int[max_contacts];
+    memset(sort_array, 0, max_contacts * sizeof(int));
+  }
+  num_contacts = MAX_ANON_CONTACTS;
+  return;
+#else
   // Heap allocate contacts + sort_array. Total slot layout matches upstream:
   //   [0 .. MAX_ANON_CONTACTS-1] : reserved for anon-request slots
   //   [MAX_ANON_CONTACTS .. total-1] : regular contacts
@@ -42,6 +58,7 @@ void BaseChatMesh::initContacts() {
   // populated-count so ContactsIterator begins past them and terminates at
   // the last populated real contact -- matches upstream semantics exactly.
   num_contacts = MAX_ANON_CONTACTS;
+#endif
 }
 
 #define CLI_REPLY_DELAY_MILLIS      600
@@ -95,15 +112,93 @@ void BaseChatMesh::sendAckTo(const ContactInfo& dest, const uint8_t* ack_hash, u
 void BaseChatMesh::bootstrapRTCfromContacts() {
   uint32_t latest = 0;
   for (int i = 0; i < num_contacts; i++) {
+#ifdef CONTACTS_FLASH_INDEX
+    if (contact_index[i].lastmod > latest) {
+      latest = contact_index[i].lastmod;
+    }
+#else
     if (contacts[i].lastmod > latest) {
       latest = contacts[i].lastmod;
     }
+#endif
   }
   if (latest != 0) {
     getRTCClock()->setCurrentTime(latest + 1);
   }
 }
 
+#ifdef CONTACTS_FLASH_INDEX
+void BaseChatMesh::loadContactsFlashIndex() {
+  int highest = MAX_ANON_CONTACTS - 1;
+  if (beginContactsScan(MAX_ANON_CONTACTS)) {
+    ContactInfo c;
+    for (int i = MAX_ANON_CONTACTS; i < max_contacts; i++) {
+      if (!readNextContactRecord(c)) break;   // treat missing/short file as EOF
+      if (c.type != ADV_TYPE_NONE) {
+        memcpy(contact_index[i].pub_key_prefix, c.id.pub_key, sizeof(contact_index[i].pub_key_prefix));
+        contact_index[i].last_advert_timestamp = c.last_advert_timestamp;
+        contact_index[i].lastmod = c.lastmod;
+        contact_index[i].type = c.type;
+        contact_index[i].flags = c.flags;
+        highest = i;
+      }
+    }
+    endContactsScan();
+  }
+  num_contacts = highest + 1;
+}
+#endif
+
+#ifdef CONTACTS_FLASH_INDEX
+ContactInfo* BaseChatMesh::allocateContactSlot(bool transient_only) {
+  int oldest_idx = -1;
+  uint32_t oldest_lastmod = 0xFFFFFFFF;
+  if (transient_only) {
+    for (int i = 0; i < MAX_ANON_CONTACTS; i++) {
+      if (contact_index[i].type == ADV_TYPE_NONE && contact_index[i].lastmod < oldest_lastmod) {
+        oldest_lastmod = contact_index[i].lastmod;
+        oldest_idx = i;
+      }
+    }
+    if (oldest_idx >= 0) {
+      // NOTE: do NOT call onContactOverwrite()
+      _scratch_idx = oldest_idx;
+      memset(&_scratch, 0, sizeof(_scratch));
+      return &_scratch;
+    }
+  } else {
+    // reuse a tombstoned (removed) slot first, to avoid unbounded growth from add/remove churn
+    for (int i = MAX_ANON_CONTACTS; i < num_contacts; i++) {
+      if (contact_index[i].type == ADV_TYPE_NONE) {
+        _scratch_idx = i;
+        memset(&_scratch, 0, sizeof(_scratch));
+        return &_scratch;
+      }
+    }
+    if (num_contacts < max_contacts) {
+      _scratch_idx = num_contacts++;
+      memset(&_scratch, 0, sizeof(_scratch));
+      return &_scratch;
+    } else if (shouldOverwriteWhenFull()) {
+      for (int i = MAX_ANON_CONTACTS; i < num_contacts; i++) {
+        bool is_favourite = (contact_index[i].flags & 0x01) != 0;
+        if (!is_favourite && contact_index[i].lastmod < oldest_lastmod) {
+          oldest_lastmod = contact_index[i].lastmod;
+          oldest_idx = i;
+        }
+      }
+      if (oldest_idx >= 0) {
+        loadContactRecord(oldest_idx, _scratch);   // need full pub_key for the callback
+        onContactOverwrite(_scratch.id.pub_key);
+        _scratch_idx = oldest_idx;
+        memset(&_scratch, 0, sizeof(_scratch));
+        return &_scratch;
+      }
+    }
+  }
+  return NULL;
+}
+#else
 ContactInfo* BaseChatMesh::allocateContactSlot(bool transient_only) {
   int oldest_idx = -1;
   uint32_t oldest_lastmod = 0xFFFFFFFF;
@@ -139,6 +234,7 @@ ContactInfo* BaseChatMesh::allocateContactSlot(bool transient_only) {
   }
   return NULL; // no space, no overwrite or all contacts are all favourites
 }
+#endif
 
 void BaseChatMesh::populateContactFromAdvert(ContactInfo& ci, const mesh::Identity& id, const AdvertDataParser& parser, uint32_t timestamp) {
   memset(&ci, 0, sizeof(ci));
@@ -161,6 +257,29 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
     return;
   }
 
+#ifdef CONTACTS_FLASH_INDEX
+  int from_idx = -1;
+  for (int i = 0; i < num_contacts; i++) {
+    if (contact_index[i].type != ADV_TYPE_NONE && memcmp(id.pub_key, contact_index[i].pub_key_prefix, 8) == 0) {
+      from_idx = i;
+      break;
+    }
+  }
+  ContactInfo* from = NULL;
+  if (from_idx >= 0) {
+    loadContactRecord(from_idx, _scratch);
+    if (id.matches(_scratch.id)) {  // confirm -- 8-byte prefix could (very rarely) collide
+      from = &_scratch;
+      _scratch_idx = from_idx;
+      if (timestamp <= from->last_advert_timestamp) {  // check for replay attacks!!
+        MESH_DEBUG_PRINTLN("onAdvertRecv: Possible replay attack, name: %s", from->name);
+        return;
+      }
+    } else {
+      from_idx = -1;
+    }
+  }
+#else
   ContactInfo* from = NULL;
   for (int i = 0; i < num_contacts; i++) {
     if (id.matches(contacts[i].id)) {  // is from one of our contacts
@@ -172,6 +291,7 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
       break;
     }
   }
+#endif
 
   // save a copy of raw advert packet (to support "Share..." function)
   int plen;
@@ -186,6 +306,10 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
   if (from && from->type == ADV_TYPE_NONE) {   // already in contacts, but from a temporary ANON_REQ ?
     memset(from, 0, sizeof(*from));  // clear the anon/temp slot
     from = NULL;  // do normal 'add' flow
+#ifdef CONTACTS_FLASH_INDEX
+    memset(&contact_index[from_idx], 0, sizeof(contact_index[0]));
+    from_idx = -1;
+#endif
   }
 
   bool is_new = false; // true = not in contacts[], false = exists in contacts[]
@@ -232,23 +356,42 @@ void BaseChatMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, 
   from->last_advert_timestamp = timestamp;
   from->lastmod = getRTCClock()->getCurrentTime();
 
+  commitContact(*from);   // no-op on fully-resident boards; persists to flash otherwise
+
   onDiscoveredContact(*from, is_new, packet->path_len, packet->path);       // let UI know
 }
 
 int BaseChatMesh::searchPeersByHash(const uint8_t* hash) {
   int n = 0;
+#ifdef CONTACTS_FLASH_INDEX
+  for (int i = 0; i < num_contacts && n < MAX_SEARCH_RESULTS; i++) {
+    if (contact_index[i].type == ADV_TYPE_NONE) continue;  // skip tombstoned/free slot
+    if (memcmp(contact_index[i].pub_key_prefix, hash, PATH_HASH_SIZE) == 0) {
+      matching_peer_indexes[n++] = i;  // store the INDEXES of matching contacts (for subsequent 'peer' methods)
+    }
+  }
+#else
   for (int i = 0; i < num_contacts && n < MAX_SEARCH_RESULTS; i++) {
     if (contacts[i].id.isHashMatch(hash)) {
       matching_peer_indexes[n++] = i;  // store the INDEXES of matching contacts (for subsequent 'peer' methods)
     }
   }
+#endif
   return n;
 }
 
 void BaseChatMesh::getPeerSharedSecret(uint8_t* dest_secret, int peer_idx) {
   int i = matching_peer_indexes[peer_idx];
   if (i >= 0 && i < num_contacts) {
+#ifdef CONTACTS_FLASH_INDEX
+    if (_scratch_idx != i) {
+      loadContactRecord(i, _scratch);
+      _scratch_idx = i;
+    }
+    memcpy(dest_secret, _scratch.getSharedSecret(self_id), PUB_KEY_SIZE);
+#else
     memcpy(dest_secret, contacts[i].getSharedSecret(self_id), PUB_KEY_SIZE);
+#endif
   } else {
     MESH_DEBUG_PRINTLN("getPeerSharedSecret: Invalid peer idx: %d", i);
   }
@@ -261,7 +404,15 @@ void BaseChatMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender
     return;
   }
 
+#ifdef CONTACTS_FLASH_INDEX
+  if (_scratch_idx != i) {
+    loadContactRecord(i, _scratch);
+    _scratch_idx = i;
+  }
+  ContactInfo& from = _scratch;
+#else
   ContactInfo& from = contacts[i];
+#endif
 
   if (type == PAYLOAD_TYPE_TXT_MSG && len > 5) {
     uint32_t sender_timestamp;
@@ -371,6 +522,8 @@ void BaseChatMesh::onPeerDataRecv(mesh::Packet* packet, uint8_t type, int sender
       handleReturnPathRetry(from, packet->path, packet->path_len);
     }
   }
+
+  commitContact(from);   // no-op on fully-resident boards; persists lastmod/sync_since otherwise
 }
 
 bool BaseChatMesh::onPeerPathRecv(mesh::Packet* packet, int sender_idx, const uint8_t* secret, uint8_t* path, uint8_t path_len, uint8_t extra_type, uint8_t* extra, uint8_t extra_len) {
@@ -380,7 +533,15 @@ bool BaseChatMesh::onPeerPathRecv(mesh::Packet* packet, int sender_idx, const ui
     return false;
   }
 
+#ifdef CONTACTS_FLASH_INDEX
+  if (_scratch_idx != i) {
+    loadContactRecord(i, _scratch);
+    _scratch_idx = i;
+  }
+  ContactInfo& from = _scratch;
+#else
   ContactInfo& from = contacts[i];
+#endif
 
   bool result = onContactPathRecv(from, packet->path, packet->path_len, path, path_len, extra_type, extra, extra_len);
 
@@ -394,6 +555,8 @@ bool BaseChatMesh::onPeerPathRecv(mesh::Packet* packet, int sender_idx, const ui
       onCommandDataRecv(from, packet, timestamp, (const char *)&extra[5]);
     }
   }
+
+  commitContact(from);   // persists out_path/lastmod (mutated inside onContactPathRecv above)
 
   return result;
 }
@@ -881,6 +1044,7 @@ void BaseChatMesh::checkConnections() {
 
 void BaseChatMesh::resetPathTo(ContactInfo& recipient) {
   recipient.out_path_len = OUT_PATH_UNKNOWN;
+  commitContact(recipient);   // no-op on fully-resident boards; persists to flash otherwise
 }
 
 static ContactInfo* table;  // pass via global :-(
@@ -893,38 +1057,96 @@ static int cmp_adv_timestamp(const void *a, const void *b) {
   return 0;
 }
 
+#ifdef CONTACTS_FLASH_INDEX
+static ContactIndexEntry* idx_table;  // pass via global :-(
+
+static int cmp_adv_timestamp_idx(const void *a, const void *b) {
+  int a_idx = *((int *)a);
+  int b_idx = *((int *)b);
+  if (idx_table[b_idx].last_advert_timestamp > idx_table[a_idx].last_advert_timestamp) return 1;
+  if (idx_table[b_idx].last_advert_timestamp < idx_table[a_idx].last_advert_timestamp) return -1;
+  return 0;
+}
+#endif
+
 void BaseChatMesh::scanRecentContacts(int last_n, ContactVisitor* visitor) {
   for (int i = 0; i < num_contacts; i++) {  // sort the INDEXES into contacts[]
     sort_array[i] = i;
   }
-  table = contacts; // pass via global *sigh* :-(
-  qsort(sort_array, num_contacts, sizeof(sort_array[0]), cmp_adv_timestamp);
 
   if (last_n == 0) {
     last_n = num_contacts;   // scan ALL
   } else {
     if (last_n > num_contacts) last_n = num_contacts;
   }
+
+#ifdef CONTACTS_FLASH_INDEX
+  idx_table = contact_index; // pass via global *sigh* :-(
+  qsort(sort_array, num_contacts, sizeof(sort_array[0]), cmp_adv_timestamp_idx);
+
+  for (int i = 0; i < last_n; i++) {
+    int idx = sort_array[i];
+    if (contact_index[idx].type == ADV_TYPE_NONE) continue;  // skip tombstoned/free slot
+    ContactInfo tmp;
+    if (loadContactRecord(idx, tmp)) visitor->onContactVisit(tmp);
+  }
+#else
+  table = contacts; // pass via global *sigh* :-(
+  qsort(sort_array, num_contacts, sizeof(sort_array[0]), cmp_adv_timestamp);
+
   for (int i = 0; i < last_n; i++) {
     visitor->onContactVisit(contacts[sort_array[i]]);
   }
+#endif
 }
 
 ContactInfo* BaseChatMesh::searchContactsByPrefix(const char* name_prefix) {
   int len = strlen(name_prefix);
+#ifdef CONTACTS_FLASH_INDEX
+  for (int i = 0; i < num_contacts; i++) {
+    if (contact_index[i].type == ADV_TYPE_NONE) continue;  // skip tombstoned/free slot
+    if (loadContactRecord(i, _scratch) && memcmp(_scratch.name, name_prefix, len) == 0) {
+      _scratch_idx = i;
+      return &_scratch;
+    }
+  }
+  return NULL;  // not found
+#else
   for (int i = 0; i < num_contacts; i++) {
     auto c = &contacts[i];
     if (memcmp(c->name, name_prefix, len) == 0) return c;
   }
   return NULL;  // not found
+#endif
 }
 
 ContactInfo* BaseChatMesh::lookupContactByPubKey(const uint8_t* pub_key, int prefix_len) {
+#ifdef CONTACTS_FLASH_INDEX
+  int cmp_len = prefix_len < 8 ? prefix_len : 8;
+  for (int i = 0; i < num_contacts; i++) {
+    if (contact_index[i].type == ADV_TYPE_NONE) continue;  // skip tombstoned/free slot
+    if (memcmp(contact_index[i].pub_key_prefix, pub_key, cmp_len) != 0) continue;
+    // reuse _scratch if it already holds this same contact (e.g. login+repeated CLI commands to
+    // the same recipient) -- avoids a redundant flash open+seek+read on every single lookup
+    if (_scratch_idx != i && !loadContactRecord(i, _scratch)) continue;
+    if (prefix_len <= 8) {
+      // resident prefix alone is authoritative for prefix lookups this short
+      _scratch_idx = i;
+      return &_scratch;
+    } else if (memcmp(_scratch.id.pub_key, pub_key, prefix_len) == 0) {
+      // need the full record to confirm a longer/exact match
+      _scratch_idx = i;
+      return &_scratch;
+    }
+  }
+  return NULL;  // not found
+#else
   for (int i = 0; i < num_contacts; i++) {
     auto c = &contacts[i];
     if (memcmp(c->id.pub_key, pub_key, prefix_len) == 0) return c;
   }
   return NULL;  // not found
+#endif
 }
 
 bool BaseChatMesh::addContact(const ContactInfo& contact) {
@@ -932,12 +1154,30 @@ bool BaseChatMesh::addContact(const ContactInfo& contact) {
   if (dest) {
     *dest = contact;
     dest->shared_secret_valid = false; // mark shared_secret as needing calculation
+    commitContact(*dest);   // no-op on fully-resident boards; persists to flash otherwise
     return true;  // success
   }
   return false;
 }
 
 bool BaseChatMesh::removeContact(ContactInfo& contact) {
+#ifdef CONTACTS_FLASH_INDEX
+  int idx = -1;
+  for (int i = 0; i < num_contacts; i++) {
+    if (contact_index[i].type != ADV_TYPE_NONE && memcmp(contact_index[i].pub_key_prefix, contact.id.pub_key, 8) == 0) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx < 0) return false;   // not found
+
+  ContactInfo blank;
+  memset(&blank, 0, sizeof(blank));
+  saveContactRecord(idx, blank);   // scrub the flash record
+  memset(&contact_index[idx], 0, sizeof(contact_index[0]));   // tombstone the slot for reuse
+  if (_scratch_idx == idx) _scratch_idx = -1;   // scratch no longer valid for this slot
+  return true;  // Success
+#else
   int idx = 0;
   while (idx < num_contacts && !contacts[idx].id.matches(contact.id)) {
     idx++;
@@ -951,6 +1191,24 @@ bool BaseChatMesh::removeContact(ContactInfo& contact) {
     idx++;
   }
   return true;  // Success
+#endif
+}
+
+bool BaseChatMesh::commitContact(ContactInfo& contact) {
+#ifdef CONTACTS_FLASH_INDEX
+  if (&contact != &_scratch || _scratch_idx < 0) return false;   // only the shared scratch buffer is flash-backed
+  bool ok = saveContactRecord(_scratch_idx, contact);
+  if (ok) {
+    memcpy(contact_index[_scratch_idx].pub_key_prefix, contact.id.pub_key, sizeof(contact_index[_scratch_idx].pub_key_prefix));
+    contact_index[_scratch_idx].last_advert_timestamp = contact.last_advert_timestamp;
+    contact_index[_scratch_idx].lastmod = contact.lastmod;
+    contact_index[_scratch_idx].type = contact.type;
+    contact_index[_scratch_idx].flags = contact.flags;
+  }
+  return ok;
+#else
+  return true;  // resident array IS the storage -- mutating 'contact' already updated it in place
+#endif
 }
 
 #ifdef MAX_GROUP_CHANNELS
@@ -1016,8 +1274,13 @@ int BaseChatMesh::findChannelIdx(const mesh::GroupChannel& ch) {
 bool BaseChatMesh::getContactByIdx(uint32_t idx, ContactInfo& contact) {
   if (idx >= num_contacts) return false;
 
+#ifdef CONTACTS_FLASH_INDEX
+  if (contact_index[idx].type == ADV_TYPE_NONE) return false;  // tombstoned/free slot
+  return loadContactRecord(idx, contact);
+#else
   contact = contacts[idx];
   return true;
+#endif
 }
 
 ContactsIterator BaseChatMesh::startContactsIterator() {
@@ -1025,10 +1288,19 @@ ContactsIterator BaseChatMesh::startContactsIterator() {
 }
 
 bool ContactsIterator::hasNext(const BaseChatMesh* mesh, ContactInfo& dest) {
+#ifdef CONTACTS_FLASH_INDEX
+  while (next_idx < mesh->getTotalContactSlots()) {
+    int idx = next_idx++;
+    if (mesh->contact_index[idx].type == ADV_TYPE_NONE) continue;  // skip tombstoned/free slot
+    if (const_cast<BaseChatMesh*>(mesh)->loadContactRecord(idx, dest)) return true;
+  }
+  return false;
+#else
   if (next_idx >= mesh->getTotalContactSlots()) return false;
 
   dest = mesh->contacts[next_idx++];
   return true;
+#endif
 }
 
 void BaseChatMesh::loop() {

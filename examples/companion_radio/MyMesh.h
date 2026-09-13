@@ -178,6 +178,17 @@ protected:
   bool onChannelLoaded(uint8_t channel_idx, const ChannelDetails& ch) override { return setChannel(channel_idx, ch); }
   bool getChannelForSave(uint8_t channel_idx, ChannelDetails& ch) override { return getChannel(channel_idx, ch); }
 
+#ifdef CONTACTS_FLASH_INDEX
+  // flash-indexed contacts storage hooks (see BaseChatMesh::loadContactsFlashIndex()/commitContact())
+  bool loadContactRecord(uint32_t idx, ContactInfo& dest) override { return _store->readContactRecord(idx, dest); }
+  bool saveContactRecord(uint32_t idx, const ContactInfo& src) override { return _store->writeContactRecord(idx, src); }
+  bool beginContactsScan(uint32_t start_idx) override { return _store->beginContactsScan(start_idx); }
+  bool readNextContactRecord(ContactInfo& dest) override { return _store->readNextContactRecord(dest); }
+  void endContactsScan() override { _store->endContactsScan(); }
+  void beginContactLookupBatch() override { _store->beginContactLookup(); }
+  void endContactLookupBatch() override { _store->endContactLookup(); }
+#endif
+
   void clearPendingReqs() {
     pending_login = pending_status = pending_telemetry = pending_discovery = pending_req = 0;
   }
@@ -270,12 +281,14 @@ private:
   int offline_queue_head;  // circular buffer head index
   int offline_queue_len;
   int offline_queue_max;
-  Frame* offline_queue;
+#ifndef OFFLINE_QUEUE_FLASH
+  Frame* offline_queue;   // resident RAM buffer -- not used when OFFLINE_QUEUE_FLASH persists to QSPI instead
+#endif
 
   struct AckTableEntry {
     unsigned long msg_sent;
     uint32_t ack;
-    ContactInfo* contact;
+    uint8_t contact_pubkey[PUB_KEY_SIZE];   // identity, not a pointer -- re-looked-up in processAck()
   };
   #define EXPECTED_ACK_TABLE_SIZE 8
   AckTableEntry expected_ack_table[EXPECTED_ACK_TABLE_SIZE]; // circular table
