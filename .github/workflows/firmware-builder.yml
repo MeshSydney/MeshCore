@@ -62,6 +62,7 @@ jobs:
         with:
           name: "${{ matrix.target }}"
           path: out
+          retention-days: 7 # avoid piling up storage from frequent (e.g. scheduled) builds
 
   create-release:
     needs: build

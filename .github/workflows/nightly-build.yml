@@ -1,0 +1,28 @@
+name: Nightly Build
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 3 * * 0' # 03:00 UTC every Sunday
+  workflow_dispatch:
+
+jobs:
+  build-repeater-firmwares:
+    uses: ./.github/workflows/firmware-builder.yml
+    with:
+      firmware_type: 'repeater'
+      release_title_prefix: 'Repeater Firmware'
+
+  build-companion-firmwares:
+    uses: ./.github/workflows/firmware-builder.yml
+    with:
+      firmware_type: 'companion'
+      release_title_prefix: 'Companion Firmware'
+
+  build-room-server-firmwares:
+    uses: ./.github/workflows/firmware-builder.yml
+    with:
+      firmware_type: 'room-server'
+      release_title_prefix: 'Room Server Firmware'
