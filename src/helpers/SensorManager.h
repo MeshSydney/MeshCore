@@ -23,6 +23,7 @@ public:
   virtual const char* getSettingValue(int i) const { return NULL; }
   virtual bool setSettingValue(const char* name, const char* value) { return false; }
   virtual LocationProvider* getLocationProvider() { return NULL; }
+  virtual bool isGPSDetected() const { return false; }
 
   // Returns true and sets volts/current/power from a system power sensor (e.g. INA219),
   // for boards whose own ADC cannot report a battery/system voltage (getBattMilliVolts() == 0).
