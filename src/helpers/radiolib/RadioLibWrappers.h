@@ -53,7 +53,7 @@ public:
 
   virtual float getCurrentRSSI() =0;
   virtual uint8_t getSpreadingFactor() const { return LORA_SF; }
-  static uint16_t preambleLengthForSF(uint8_t sf) { return sf <= 9 ? 32 : 16; }
+  static uint16_t preambleLengthForSF(uint8_t sf) { return sf <= 9 ? 64 : 16; }
   void updatePreamble(uint8_t sf) { _preamble_sf = sf; _radio->setPreambleLength(preambleLengthForSF(sf)); }
   PacketMillis calcMaxPacketMillis(uint8_t sf, float bw, uint8_t cr, uint8_t preambleSymbols);
   virtual int16_t performChannelScan();
