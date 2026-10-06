@@ -185,18 +185,6 @@ Nearly all repeater variants also pick up the `MAX_NEIGHBOURS` 50→200 bump des
 ## 14. `.gitignore`
 - Added build output directories and local build scripts (`build_and_organize_all.bat/.ps1`, `build_firmware.bat/.ps1`, test build output) to the ignore list
 
----
-
-## 15. Core Mesh Routing — Next-Hop Reliability (`src/Mesh.*`)
-- When a node forwards a direct (path-routed) packet and there's still a further explicit hop left in its path, it now tracks the packet's content hash and listens for that next hop repeating it — an overheard repeat is treated as implicit confirmation of receipt
-- Also applied when a companion radio, repeater, or room server **originates** a direct packet (via `sendDirect()`) rather than just relaying one — the sending node listens for the first hop in the path to repeat it, the same as any in-transit repeater would
-- If no repeat is heard within a timeout, the packet is resent, **up to 3 retries**, before being dropped
-- Tunable via new virtual hooks on `Mesh`: `getNextHopReliabilityEnabled()` (default on), `getNextHopMaxRetries()` (default 3), `getNextHopConfirmTimeout()` (default ~3x estimated airtime + 2 s)
-- Does not apply to ACK/MULTIPART packets being relayed *in-transit* by a repeater (they use their own dedicated forwarding/dedup logic), or to TRACE (path grows rather than shrinks per-hop, so its hash isn't stable across hops)
-- **Last hop before the destination**: since the destination consumes the packet silently instead of repeating it, there's nothing to overhear there. For `REQ` packets (repeater CLI commands, status/neighbour queries, logins) this gap is closed instead by waiting for the correlated `RESPONSE` the destination sends back — the `RESPONSE`'s `dest_hash` is matched against the original `REQ`'s `src_hash`, so only a genuine reply to that specific request counts as confirmation, not just any traffic
-- Direct text messages (`TXT_MSG`) are acknowledged with a plain `ACK` instead, which carries no dest/src hash to correlate exactly — so their last hop is closed with a looser check: overhearing *any* direct `ACK` routed back through the node counts as confirmation. Approximate (not tied to the specific message), but still narrows the always-fails gap down to only when no ACK traffic at all comes back
-- Known limitation: the *return* leg of a confirmed `RESPONSE`/`ACK` has no further reply to key off of, so its own last hop back to the original sender is subject to the same inherent limitation — this is unavoidable without a reply-to-a-reply
-
 MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
 
 ## Contributing
