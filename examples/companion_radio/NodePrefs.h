@@ -47,7 +47,7 @@ public:
   uint8_t default_scope_key[16];
   int16_t interference_threshold = 0;
   uint8_t agc_reset_interval = 0;    // stored in 4-second units
-  int8_t tz_offset = 0;
+  float tz_offset = 0;
 #ifdef ENABLE_WIFI_INTERFACE
   #ifndef WIFI_SSID
     #define WIFI_SSID ""
