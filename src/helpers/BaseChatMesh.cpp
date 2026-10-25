@@ -727,6 +727,11 @@ int  BaseChatMesh::sendCommandData(const ContactInfo& recipient, uint32_t timest
 }
 
 bool BaseChatMesh::sendGroupMessage(uint32_t timestamp, mesh::GroupChannel& channel, const char* sender_name, const char* text, int text_len) {
+  if (text_len < 0) {   // memcpy() below would read this as a size_t, so clamping cannot catch it
+    MESH_DEBUG_PRINTLN("sendGroupMessage: invalid negative text_len=%d", text_len);
+    return false;
+  }
+
   uint8_t temp[5+MAX_TEXT_LEN+32];
   memcpy(temp, &timestamp, 4);   // mostly an extra blob to help make packet_hash unique
   temp[4] = 0;  // TXT_TYPE_PLAIN
