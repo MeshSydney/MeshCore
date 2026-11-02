@@ -2233,6 +2233,23 @@ bool MyMesh::handleCommand(const char* command, uint32_t sender_timestamp, char*
     return true;
   }
 
+#ifdef PIN_BUZZER
+  if (strcmp(command, "get buzzer") == 0) {
+    sprintf(reply, "> %s", _prefs.buzzer_quiet ? "off" : "on");
+    return true;
+  }
+  if (memcmp(command, "set buzzer ", 11) == 0) {
+    if (strcmp(&command[11], "on") == 0 || strcmp(&command[11], "off") == 0) {
+      _prefs.buzzer_quiet = strcmp(&command[11], "off") == 0;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error: state must be on or off");
+    }
+    return true;
+  }
+#endif
+
   if (memcmp(command, "set pin ", 8) == 0) {
     _prefs.ble_pin = atoi(&command[8]);
     savePrefs();
@@ -2318,6 +2335,108 @@ bool MyMesh::handleCommand(const char* command, uint32_t sender_timestamp, char*
     }
     return true;
   }
+#ifdef DISPLAY_CLASS
+  if (memcmp(command, "set ui.show_clock", 17) == 0) {
+    _prefs.ui_show_clock = atoi(&command[17]) ? 1 : 0;
+    savePrefs();
+    sprintf(reply, "> now %d", _prefs.ui_show_clock);
+    return true;
+  }
+  if (memcmp(command, "set ui.auto_off_delay", 21) == 0) {
+    _prefs.ui_auto_off_delay = atoi(&command[21]);
+    savePrefs();
+    sprintf(reply, "> now %d seconds", _prefs.ui_auto_off_delay);
+    return true;
+  }
+  if (memcmp(command, "set ui.backlight_delay", 22) == 0) {
+    _prefs.ui_backlight_delay = atoi(&command[22]);
+    savePrefs();
+    if (_prefs.ui_backlight_delay >= 0)    
+      sprintf(reply, "> now %d seconds", _prefs.ui_backlight_delay);
+    else if (_prefs.ui_backlight_delay == -1)
+      sprintf(reply, "> now always on (-1)");
+    else
+      sprintf(reply, "> now disabled (<-1)");
+    return true;
+  }
+  if (memcmp(command, "set ui.backlight_on_keys", 24) == 0) {
+    _prefs.ui_backlight_on_keys = atoi(&command[24]);
+    savePrefs();
+    sprintf(reply, "> now %d", _prefs.ui_backlight_on_keys);
+    return true;
+  }
+  if (memcmp(command, "set ui.backlight_on_msgs", 24) == 0) {
+    _prefs.ui_backlight_on_msgs = atoi(&command[24]);
+    savePrefs();
+    sprintf(reply, "> now %d", _prefs.ui_backlight_on_msgs);
+    return true;
+  }
+  if (memcmp(command, "set ui.auto_off_blank", 21) == 0) {
+    _prefs.ui_auto_off_blank = atoi(&command[21]);
+    savePrefs();
+    sprintf(reply, "> now %d", _prefs.ui_auto_off_blank);
+    return true;
+  }
+  if (memcmp(command, "set ui.auto_off_keep_msgs", 25) == 0) {
+    _prefs.ui_auto_off_keep_msgs = atoi(&command[25]);
+    savePrefs();
+    sprintf(reply, "> now %d", _prefs.ui_auto_off_keep_msgs);
+    return true;
+  }
+  if (memcmp(command, "set ui.max_partial", 18) == 0) {
+    _prefs.ui_max_partial = atoi(&command[18]);
+    savePrefs();
+    sprintf(reply, "> now %d (applied at next screen wakeup)", _prefs.ui_max_partial);
+    return true;
+  }
+  if (memcmp(command, "set ui.nd_name", 14) == 0) {
+    _prefs.ui_nd_name = atoi(&command[14]);
+    savePrefs();
+    sprintf(reply, "> ui.nd_name is now %d", _prefs.ui_nd_name);
+    return true;
+  }
+  if (memcmp(command, "get ui.show_clock", 17) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_show_clock);
+    return true;
+  }
+  if (memcmp(command, "get ui.auto_off_delay", 21) == 0) {
+    sprintf(reply, "> %d seconds", _prefs.ui_auto_off_delay);
+    return true;
+  }
+  if (memcmp(command, "get ui.backlight_delay", 22) == 0) {
+    if (_prefs.ui_backlight_delay >= 0)    
+      sprintf(reply, "> %d seconds", _prefs.ui_backlight_delay);
+    else if (_prefs.ui_backlight_delay == -1)
+      sprintf(reply, "> always on (-1)");
+    else
+      sprintf(reply, "> disabled (<-1)");
+    return true;
+  }
+  if (memcmp(command, "get ui.backlight_on_keys", 24) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_backlight_on_keys);
+    return true;
+  }
+  if (memcmp(command, "get ui.backlight_on_msgs", 24) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_backlight_on_msgs);
+    return true;
+  }
+  if (memcmp(command, "get ui.auto_off_blank", 21) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_auto_off_blank);
+    return true;
+  }
+  if (memcmp(command, "get ui.auto_off_keep_msgs", 25) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_auto_off_keep_msgs);
+    return true;
+  }
+  if (memcmp(command, "get ui.max_partial", 18) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_max_partial);
+    return true;
+  }
+  if (memcmp(command, "get ui.nd_name", 14) == 0) {
+    sprintf(reply, "> %d", _prefs.ui_nd_name);
+    return true;
+  }
+#endif
 
   return false;  // not handled
 }
