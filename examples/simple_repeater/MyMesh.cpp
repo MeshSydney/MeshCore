@@ -437,7 +437,8 @@ void MyMesh::sendFloodReply(mesh::Packet* packet, unsigned long delay_millis, ui
 bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   if (_prefs.disable_fwd) return false;
   if (packet->isRouteFlood()
-      && mesh::isFloodHopLimitExceeded(packet, _prefs.flood_max, _prefs.flood_max_unscoped, _prefs.flood_max_advert)) {
+      && mesh::isFloodHopLimitExceeded(packet, _prefs.flood_max, _prefs.flood_max_unscoped,
+                                       _prefs.flood_max_advert, _prefs.flood_max_data)) {
     return false;
   }
   if (packet->isRouteFlood() && recv_pkt_region == NULL) {
@@ -1039,11 +1040,9 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
 
     if (reply_len == 0) return;   // invalid request
 
-    // a DIRECT login can reply via the stored out_path, as onPeerDataRecv() does for REQ
-    ClientInfo* client = acl.getClient(sender.pub_key, PUB_KEY_SIZE);
-    bool have_out_path = client != NULL && client->out_path_len != OUT_PATH_UNKNOWN;
-
-    auto route = mesh::chooseReplyRoute(packet->isRouteFlood(), reply_path_len != 0xFF, have_out_path);
+    // Never reply via a stored out_path here: a DIRECT login carries no reply path, and the client may have
+    // chosen a different route than the one stored from an earlier session, so that reply would be lost.
+    auto route = mesh::chooseReplyRoute(packet->isRouteFlood(), reply_path_len != 0xFF, false);
 
     if (route == mesh::REPLY_ROUTE_PATH_RETURN) {
       // let this sender know path TO here, so they can use sendDirect(), and ALSO encode the response
@@ -1058,8 +1057,6 @@ void MyMesh::onAnonDataRecv(mesh::Packet *packet, const uint8_t *secret, const m
 
     if (route == mesh::REPLY_ROUTE_DIRECT_SUPPLIED) {
       sendDirect(reply, reply_path, reply_path_len, SERVER_RESPONSE_DELAY);
-    } else if (route == mesh::REPLY_ROUTE_DIRECT_OUT_PATH) {
-      sendDirect(reply, client->out_path, client->out_path_len, SERVER_RESPONSE_DELAY);
     } else {
       sendFloodReply(reply, SERVER_RESPONSE_DELAY, packet->getPathHashSize());
     }
@@ -1425,6 +1422,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_max = 64;
   _prefs.flood_max_unscoped = 64;
   _prefs.flood_max_advert = 8;
+  _prefs.flood_max_data = 64;
   _prefs.interference_threshold = 0; // disabled
   _prefs.advert_jail = 12; // 12 hours
   _prefs.flood_path_max = DEFAULT_FLOOD_PATH_MAX; // default 12

@@ -47,6 +47,7 @@ public:
   uint8_t flood_max = 0;
   uint8_t flood_max_unscoped = 0;
   uint8_t flood_max_advert = 0;
+  uint8_t flood_max_data = 0;      // max hops for group data packets, 64 = effectively no limit
   uint8_t interference_threshold = 0;
   uint8_t agc_reset_interval = 0; // secs / 4
   // Bridge settings
@@ -188,6 +189,7 @@ private:
       def("f_max", _parent->flood_max);
       def("f_max_uns", _parent->flood_max_unscoped);
       def("f_max_adv", _parent->flood_max_advert);
+      def("f_max_data", _parent->flood_max_data);
       def("loop", _parent->loop_detect);
       def("advert_rl", _parent->advert_ratelimit);
       def("advert_jail", _parent->advert_jail);

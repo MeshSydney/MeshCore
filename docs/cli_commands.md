@@ -715,6 +715,20 @@ adverts running, set an explicit value in the 60-240 range.
 
 ---
 
+#### Limit the number of hops for a group data message
+**Usage:**
+- `get flood.max.data`
+- `set flood.max.data <value>`
+
+**Parameters:**
+- `value`: Maximum flood hop count (0-64) for a group data (GRP_DATA) packet
+
+**Default:** `64`
+
+**Note:** `0` blocks group data packets entirely at this repeater; `64` is effectively unlimited. Applies to group datagrams only — group text messages (GRP_TXT) are not affected.
+
+---
+
 ### ACL
 
 #### Add, update or remove permissions for a companion

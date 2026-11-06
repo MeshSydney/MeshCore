@@ -105,7 +105,8 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy 
     file.read((uint8_t *)&_prefs->flood_max_advert, sizeof(_prefs->flood_max_advert));              // 296
     file.read((uint8_t *)&_prefs->radio_fem_rxgain, sizeof(_prefs->radio_fem_rxgain));              // 297
     file.read((uint8_t *)&_prefs->cad_enabled, sizeof(_prefs->cad_enabled));                       // 298
-    // next: 299
+    file.read((uint8_t *)&_prefs->flood_max_data, sizeof(_prefs->flood_max_data));                  // 299
+    // next: 300
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -139,6 +140,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {  // Legacy 
     _prefs->advert_jail = constrain(_prefs->advert_jail, 0, 168);
     _prefs->flood_path_max = constrain(_prefs->flood_path_max, 0, 255);
     _prefs->flood_max_advert = constrain(_prefs->flood_max_advert, 0, 255);
+    _prefs->flood_max_data = constrain(_prefs->flood_max_data, 0, 255);
     _prefs->radio_fem_rxgain = constrain(_prefs->radio_fem_rxgain, 0, 1); // boolean
     _prefs->radio_fem_txgain = constrain(_prefs->radio_fem_txgain, 0, 1); // boolean
     _prefs->cad_enabled = constrain(_prefs->cad_enabled, 0, 1); // boolean
@@ -601,6 +603,15 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     } else {
       strcpy(reply, "Error, max 64");
     }
+  } else if (memcmp(config, "flood.max.data ", 15) == 0) {
+    uint8_t m = atoi(&config[15]);
+    if (m <= 64) {
+      _prefs->flood_max_data = m;
+      savePrefs();
+      strcpy(reply, "OK");
+    } else {
+      strcpy(reply, "Error, max 64");
+    }
   } else if (memcmp(config, "flood.max ", 10) == 0) {
     uint8_t m = atoi(&config[10]);
     if (m <= 64) {
@@ -763,6 +774,8 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
     sprintf(reply, "> %s", StrHelper::ftoa(_prefs->node_lat));
   } else if (memcmp(config, "lon", 3) == 0) {
     sprintf(reply, "> %s", StrHelper::ftoa(_prefs->node_lon));
+  } else if (memcmp(config, "flood.max.data", 14) == 0) {
+    sprintf(reply, "> %d", (uint32_t)_prefs->flood_max_data);
   } else if (memcmp(config, "flood.max.advert", 16) == 0) {
     sprintf(reply, "> %d", (uint32_t)_prefs->flood_max_advert);
   } else if (memcmp(config, "flood.max.unscoped", 18) == 0) {

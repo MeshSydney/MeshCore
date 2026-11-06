@@ -301,7 +301,8 @@ uint32_t MyMesh::getDirectRetransmitDelay(const mesh::Packet *packet) {
 bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
   if (_prefs.disable_fwd) return false;
   if (packet->isRouteFlood()
-      && mesh::isFloodHopLimitExceeded(packet, _prefs.flood_max, _prefs.flood_max_unscoped, _prefs.flood_max_advert)) {
+      && mesh::isFloodHopLimitExceeded(packet, _prefs.flood_max, _prefs.flood_max_unscoped,
+                                       _prefs.flood_max_advert, _prefs.flood_max_data)) {
     return false;
   }
   return true;
@@ -704,6 +705,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_max = 64;
   _prefs.flood_max_unscoped = 64;
   _prefs.flood_max_advert = 8;
+  _prefs.flood_max_data = 64;
   _prefs.interference_threshold = 0; // disabled
   _prefs.cad_enabled = 0;            // hardware CAD before TX (off by default; 'set cad on')
 #ifdef ROOM_PASSWORD
