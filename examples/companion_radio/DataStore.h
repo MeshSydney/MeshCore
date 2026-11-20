@@ -3,7 +3,7 @@
 #include <helpers/IdentityStore.h>
 #include <helpers/ContactInfo.h>
 #include <helpers/ChannelDetails.h>
-#include "NodePrefs.h"
+#include <helpers/CompanionNodePrefs.h>
 
 #if defined(EXTRAFS) || defined(QSPIFLASH) || defined(ESP32)
   #define MAX_BLOBRECS 100

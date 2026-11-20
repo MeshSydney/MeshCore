@@ -276,5 +276,10 @@ public:
   bool setChannel(int idx, const ChannelDetails& src);
   int findChannelIdx(const mesh::GroupChannel& ch);
 
+  virtual void savePrefs() { }
+  virtual void enterCLIRescue() { }
+  // hook for UIs that queue a sent channel message for local display (e.g. Morse compose)
+  virtual void queueSentChannelMessage(uint8_t channel_idx, uint32_t timestamp, const char* text) { }
+
   void loop();
 };

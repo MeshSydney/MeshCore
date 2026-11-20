@@ -9,6 +9,7 @@
 #include <helpers/SensorManager.h>
 #ifdef DISPLAY_CLASS
   #include "TWatchS3PlusDisplay.h"
+  #include <UITask.h>
 #endif
 #include "helpers/sensors/EnvironmentSensorManager.h"
 #include "helpers/sensors/MicroNMEALocationProvider.h"
@@ -20,6 +21,7 @@ extern EnvironmentSensorManager sensors;
 
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;
+  extern UITask ui_task;
 #endif
 
 bool radio_init();

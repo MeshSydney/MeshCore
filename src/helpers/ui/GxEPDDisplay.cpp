@@ -123,7 +123,9 @@ void GxEPDDisplay::drawSleepIcon() {
   display.fillRect((x - 5) * scale_x - 1, y * scale_y, (W+5) * scale_x + 2, (H-2) * scale_y + 1, GxEPD_WHITE);
   _curr_color = GxEPD_BLACK;
   drawXbm(x, y, sleep_icon_24x24, W, H);
+  if (_busy_hook) display.epd2.setBusyCallback(busyCallback, this);
   display.display(true);
+  display.epd2.setBusyCallback(NULL);
 }
 
 void GxEPDDisplay::turnOff(bool blank) {
@@ -134,17 +136,18 @@ void GxEPDDisplay::turnOff(bool blank) {
   }
   _isOn = false;
   last_display_crc_value=0;
+  display.hibernate();
 }
 
 void GxEPDDisplay::blankScreen() {
   // do full refresh before powering off to clear screen
   // no full refresh needed at wakeup
+  if (_busy_hook) display.epd2.setBusyCallback(busyCallback, this);
   display.clearScreen(0xFF); // Clears microcontroller side RAM
   display.writeScreenBuffer(0xFF); // Forces 0xFF (White) into the display controller's history registers
+  display.epd2.setBusyCallback(NULL);
   _partial_refresh_count = 0;
   last_display_crc_value = 0;
-  // we can hibernate as screen has been cleaned
-  display.hibernate();
 }
 
 void GxEPDDisplay::clear() {
@@ -161,8 +164,10 @@ void GxEPDDisplay::startFrame(ColorVal bkg) {
       || (_max_partial_refresh > 0 
           && _partial_refresh_count >= _max_partial_refresh)) {
     // forces a full wipe of the screen ...
+    if (_busy_hook) display.epd2.setBusyCallback(busyCallback, this);
     display.clearScreen(0xFF); // Clears microcontroller side RAM
     display.writeScreenBuffer(0xFF); // Forces 0xFF (White) into the display controller's history registers
+    display.epd2.setBusyCallback(NULL);
     // we'll need a partial refresh after that (whatever crc value is)
     last_display_crc_value = 0;
     _partial_refresh_count = 0;
@@ -288,7 +293,10 @@ void GxEPDDisplay::endFrame() {
     // diff, which is what drives text fully black. A full-mode push here
     // writes identical content to both registers, leaving text under-driven
     // and grey instead of black.
+    // keep the rest of the firmware running while the panel refreshes (~0.5s partial)
+    if (_busy_hook) display.epd2.setBusyCallback(busyCallback, this);
     display.display(true);
+    display.epd2.setBusyCallback(NULL);
     _full_refresh_pending = false;
     _partial_refresh_count++;
   }
