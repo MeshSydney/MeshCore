@@ -1032,9 +1032,18 @@ void UITask::onMessageRecv(mesh::Packet *pkt, const ContactInfo &from, uint8_t t
 }
 
 void UITask::onChannelMessageRecv(mesh::Packet *pkt, ChannelDetails& channel_details, const char* text) {
+#ifdef HELTEC_MESH_POCKET
+#ifdef MORSE_COMPOSE_ENABLED
+  // Feed incoming channel messages to MorseScreen inbox for display
+  if (morse_screen) {
+    ((MorseScreen*)morse_screen)->notifyPublicMsg(channel_details.name, text);
+  }
+#endif
+#else
   uint8_t path_len = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
   ((MsgPreviewScreen *) msg_preview)->addPreview(path_len, channel_details.name, text);
   setCurrScreen(msg_preview);
+#endif
 
   if (_display != NULL) {
     if (!_display->isOn() && !hasConnection()) {
@@ -1338,14 +1347,14 @@ void UITask::loop() {
     if (ms->consumeSendRequest(&sendText) && sendText) {
       uint8_t ch_idx = ms->getChannelIdx();
       ChannelDetails ch;
-      if (the_mesh.getChannel(ch_idx, ch)) {
+      if (the_mesh->getChannel(ch_idx, ch)) {
         uint32_t ts = rtc_clock.getCurrentTime();
-        the_mesh.sendGroupMessage(ts, ch.channel,
-          the_mesh.getNodeName(), sendText, strlen(sendText));
+        the_mesh->sendGroupMessage(ts, ch.channel,
+          _node_prefs->node_name, sendText, strlen(sendText));
         char fullMsg[160];
         snprintf(fullMsg, sizeof(fullMsg), "%s: %s",
-                 the_mesh.getNodeName(), sendText);
-        the_mesh.queueSentChannelMessage(ch_idx, ts, fullMsg);
+                 _node_prefs->node_name, sendText);
+        the_mesh->queueSentChannelMessage(ch_idx, ts, fullMsg);
         showAlert("Sent!", 800);
       }
       ms->clearOutBuf();
@@ -1383,9 +1392,13 @@ void UITask::loop() {
       }
 #endif
       if (millis() > _auto_off) {
+#ifdef HELTEC_MESH_POCKET
+        if (_node_prefs->ui_auto_off_blank) {
+#else
         if (_node_prefs->ui_auto_off_blank &&
               !(_node_prefs->ui_auto_off_keep_msgs 
                           && curr == msg_preview)) { 
+#endif
             // don't blank if messages are waiting
             _display->turnOff(true);
         } else {
@@ -1454,7 +1467,7 @@ char UITask::handleDoubleClick(char c) {
     picker->activate();
     ChannelDetails ch;
     for (uint8_t i = 0; i < MAX_GROUP_CHANNELS; i++) {
-      if (the_mesh.getChannel(i, ch) && ch.name[0] != 0) {
+      if (the_mesh->getChannel(i, ch) && ch.name[0] != 0) {
         picker->addChannel(i, ch.name);
       }
     }
